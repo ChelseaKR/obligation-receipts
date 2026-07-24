@@ -19,6 +19,10 @@ All notable changes will be documented here.
 
 ### Changed
 
+- Replace tag-triggered ambient release-candidate builds with explicit
+  signed-tag authorization from protected main, exact-commit checkout, and
+  candidate build provenance without granting publication authority; verify
+  that boundary from permission and publisher semantics rather than a comment.
 - Bound contract-source hashing at 16 MiB and reject blocking special files.
 - Reject platform-dependent source/evidence path spellings before filesystem
   access.
