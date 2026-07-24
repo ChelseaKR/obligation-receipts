@@ -1,0 +1,12 @@
+{
+  "schema_version": "obligation-receipts/attestation/v0.1",
+  "contract_id": "synthetic-accessibility-acceptance",
+  "contract_version": "1.0",
+  "manifest_sha256": "90f93af731b3e65d4430d96710b6dae199684fc6d9b0cde4854183f8c74a54f9",
+  "obligation_id": "a3-external-acr",
+  "evidence_id": "a3-vendor-attestation",
+  "status": "pass",
+  "issuer": "Synthetic Vendor",
+  "observed_at": "2026-07-22T12:00:00Z",
+  "source_uri": "https://example.invalid/synthetic-acr"
+}

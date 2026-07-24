@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "obligation-receipts"
+version = "0.1.0"
+description = "Turn approved acceptance obligations into deterministic evidence receipts."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "Chelsea Kelly-Reif" }]
+keywords = ["acceptance-testing", "procurement", "evidence", "provenance", "public-interest"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "mypy>=1.18",
+  "pytest>=8",
+  "pytest-cov>=5",
+  "ruff>=0.15",
+]
+
+[project.scripts]
+obligation-receipts = "obligation_receipts.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/obligation_receipts"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "S", "C90", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests", "scripts"]
+
+[tool.pytest.ini_options]
+minversion = "8"
+testpaths = ["tests"]
+addopts = """
+-q \
+--strict-markers \
+--strict-config \
+--import-mode=importlib \
+--cov=obligation_receipts \
+--cov-branch \
+--cov-report=term-missing \
+--cov-fail-under=90
+"""
+
+[tool.coverage.run]
+source = ["obligation_receipts"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
