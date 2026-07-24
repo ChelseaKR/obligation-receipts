@@ -1,0 +1,2 @@
+sample_id,clause_id,source_locator,classification,criticality,proposed_evidence,accountable_owner,mapping_minutes,requires_interpretation,current_tool_already_handles,notes
+synthetic-example,clause-001,page-or-section,unverifiable,should,none,role-not-person,0,true,false,replace this example row before use

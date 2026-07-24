@@ -1,0 +1,12 @@
+SYNTHETIC ACCEPTANCE EXCERPT — NOT A CONTRACT
+
+A-1. The delivered service must have zero critical automated accessibility
+violations in the approved acceptance run.
+
+A-2. A named accessibility specialist must complete the approved keyboard and
+screen-reader workflow review before acceptance.
+
+A-3. The supplier must provide a current external accessibility conformance
+report for the delivered release.
+
+A-4. The service should be intuitive.

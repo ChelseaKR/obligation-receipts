@@ -1,0 +1,59 @@
+[contract]
+id = "synthetic-accessibility-acceptance"
+title = "Synthetic Section 508 acceptance excerpt"
+version = "1.0"
+authority = "Synthetic public-sector software acceptance exercise"
+effective_date = "2026-07-22"
+source_path = "source/section-508-acceptance.txt"
+source_sha256 = "b94a87890d23aaedc93c143a00d5fc4f96f7ed09a9f839bb4aa8d9c841562bed"
+
+[[obligations]]
+id = "a1-zero-critical-violations"
+clause_ref = "A-1"
+text = "The delivered service must have zero critical automated accessibility violations."
+classification = "automated"
+criticality = "must"
+owner = "Agency acceptance lead"
+
+[[obligations.evidence]]
+id = "a1-axe-summary"
+kind = "json_assertion"
+path = "automated/axe-summary.json"
+pointer = "/summary/critical_violations"
+operator = "eq"
+expected = 0
+
+[[obligations]]
+id = "a2-human-workflow-review"
+clause_ref = "A-2"
+text = "A named specialist must complete the approved keyboard and screen-reader workflow review."
+classification = "manual_review"
+criticality = "must"
+owner = "Accessibility lead"
+
+[[obligations.evidence]]
+id = "a2-review-attestation"
+kind = "review_attestation"
+path = "manual/keyboard-review.json"
+
+[[obligations]]
+id = "a3-external-acr"
+clause_ref = "A-3"
+text = "The supplier must provide a current external accessibility conformance report."
+classification = "external_evidence"
+criticality = "should"
+owner = "Contracting officer representative"
+
+[[obligations.evidence]]
+id = "a3-vendor-attestation"
+kind = "external_attestation"
+path = "external/acr-attestation.json"
+
+[[obligations]]
+id = "a4-intuitive"
+clause_ref = "A-4"
+text = "The service should be intuitive."
+classification = "unverifiable"
+criticality = "should"
+owner = "Product owner"
+reason = "No population, task, method, threshold, or accountable reviewer is defined."
