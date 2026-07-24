@@ -15,6 +15,9 @@ def test_ci_actions_are_digest_pinned_and_release_does_not_publish() -> None:
         assert "pull_request_target:" not in text
         assert "permissions: write-all" not in text
     release = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "Public/package publication" in release
+    assert "name: release-candidate" in release
+    assert "contents: write" not in release
+    assert "pypa/gh-action-pypi-publish" not in release
+    assert "gh release create" not in release
     assert "pypi-publish" not in release
     assert "uv publish" not in release
