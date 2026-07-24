@@ -19,6 +19,8 @@ All notable changes will be documented here.
 
 ### Changed
 
+- Make the M0 internationalization exemption mechanically auditable with its
+  exact scope, re-entry seam, owner, and review date.
 - Bound contract-source hashing at 16 MiB and reject blocking special files.
 - Reject platform-dependent source/evidence path spellings before filesystem
   access.
