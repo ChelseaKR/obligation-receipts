@@ -95,10 +95,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
-      actions: read # required on private repos: codeql-action/upload-sarif checks prior workflow-run state
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
+        with:
+          # Code scanning / GitHub Advanced Security is not enabled on this
+          # private repo, so the default SARIF-upload path
+          # (advanced-security: true) always fails at the upload step with
+          # "Code scanning is not enabled for this repository." Emit plain
+          # GitHub Actions annotations instead; zizmor's own exit code
+          # still fails the job on real findings.
+          advanced-security: false
+          annotations: true
