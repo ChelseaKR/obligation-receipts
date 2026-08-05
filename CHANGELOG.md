@@ -62,3 +62,6 @@ All notable changes will be documented here.
   just that reference; the audit is disabled with a documented scope and
   re-entry condition in `.github/zizmor.yml` rather than left permanently
   red or silenced with an unscoped workaround.
+- Grant the `zizmor` job `actions: read`, which its SARIF upload step needs
+  to check prior workflow-run state on a private repo; without it, disabling
+  `impostor-commit` let the job reach and fail at that later step instead.
