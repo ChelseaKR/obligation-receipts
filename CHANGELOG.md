@@ -53,3 +53,12 @@ All notable changes will be documented here.
   missing, and review-required states with distinct CLI exits.
 - Bind single checks to contract/source/manifest/obligation/evidence identities
   while omitting paths, content, assertion details, and aggregate conclusions.
+
+### Fixed
+
+- Restore the `zizmor` CI check to green. Its `impostor-commit` audit cannot
+  read the private `portfolio-standards` repo that `release.yml` pins as a
+  reusable workflow, and errors out for the whole file rather than skipping
+  just that reference; the audit is disabled with a documented scope and
+  re-entry condition in `.github/zizmor.yml` rather than left permanently
+  red or silenced with an unscoped workaround.
