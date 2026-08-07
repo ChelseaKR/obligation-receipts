@@ -231,6 +231,15 @@ See [Architecture](docs/ARCHITECTURE.md),
 | Responsible-Tech Framework | Applies; see [current audit](docs/RESPONSIBLE-TECH-AUDITS.md) |
 | Incident response and data governance | Applies; synthetic/public discovery data only |
 
+## Provenance
+
+This project is developed AI-assisted (Claude Code) under an accountable human
+maintainer. Every change must pass the merge-blocking `make verify` gate (Ruff,
+strict mypy, and pytest with a 90% branch-coverage floor) plus the committed CI
+security scans. Development assistance does not change the product boundary:
+the shipped tool remains standard-library only and makes no LLM or network call
+in validation, evaluation, or verification.
+
 ## Project documents
 
 - [PRD](docs/PRD.md)
