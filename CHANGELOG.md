@@ -16,6 +16,8 @@ All notable changes will be documented here.
   release, and internationalization declarations.
 - Unrated official public-SOW sample candidates with two byte-frozen source
   digests.
+- AI-assisted development disclosure in the README, separating development
+  provenance from the no-LLM product boundary.
 
 ### Changed
 
