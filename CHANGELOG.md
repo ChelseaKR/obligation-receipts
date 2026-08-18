@@ -55,6 +55,19 @@ All notable changes will be documented here.
   missing, and review-required states with distinct CLI exits.
 - Bind single checks to contract/source/manifest/obligation/evidence identities
   while omitting paths, content, assertion details, and aggregate conclusions.
+- **Breaking:** extend the single-check exit-code discipline to the whole CLI
+  from one shared `obligation_receipts.exit_codes` contract, so exit 2 now means
+  only "no result document was produced". `evaluate` previously returned 2 for a
+  `rejected` or `incomplete` evaluation — the same code as an unreadable
+  manifest, an absent evidence root, or a source-digest mismatch — leaving an
+  automated acceptance pipeline unable to tell an evaluated negative outcome
+  from a tool failure. `rejected` is now 1 and `incomplete` is 3. `verify`
+  likewise returns 1 for a payload-digest or replay mismatch, because a receipt
+  that does not reproduce is an integrity finding about that receipt rather than
+  a failure to read it.
+- Check the `--manifest`/`--evidence-root` pairing for `verify` before reading
+  the receipt, so an incomplete invocation is reported as such instead of as
+  whatever the receipt path happened to fail on first.
 
 ### Fixed
 

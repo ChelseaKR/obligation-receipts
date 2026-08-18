@@ -13,6 +13,7 @@ from obligation_receipts.canonical import (
     validate_json_value,
 )
 from obligation_receipts.evaluator import evaluate_declared_evidence
+from obligation_receipts.exit_codes import evidence_exit_code
 from obligation_receipts.models import (
     Classification,
     Criticality,
@@ -269,9 +270,4 @@ def evidence_check_exit_code(document: dict[str, JsonValue]) -> int:
         "single evidence check evidence",
     )
     status = _enum(evidence, "status", "single evidence check evidence", ResultStatus)
-    return {
-        ResultStatus.PASS: 0,
-        ResultStatus.FAIL: 1,
-        ResultStatus.MISSING: 3,
-        ResultStatus.REVIEW_REQUIRED: 4,
-    }[status]
+    return evidence_exit_code(status)

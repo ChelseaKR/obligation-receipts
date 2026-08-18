@@ -119,7 +119,7 @@ def test_replay_rejects_changed_evidence(
                 str(evidence_root),
             ]
         )
-        == 2
+        == 1
     )
     assert "does not match a fresh evidence replay" in capsys.readouterr().err
 
@@ -172,7 +172,7 @@ def test_cli_returns_nonzero_for_rejected_evaluation(
                 str(tmp_path / "receipt.json"),
             ]
         )
-        == 2
+        == 1
     )
     assert _last_stdout_json(capsys)["overall_status"] == "rejected"
 
@@ -322,3 +322,105 @@ def test_check_evidence_cli_unknown_id_is_usage_failure(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "exactly one declared evidence item" in captured.err
+
+
+def _evaluate_args(manifest: Path, evidence_root: Path, out: Path) -> list[str]:
+    return [
+        "evaluate",
+        str(manifest),
+        "--evidence-root",
+        str(evidence_root),
+        "--out",
+        str(out),
+        "--generated-at",
+        "2026-01-01T00:00:00+00:00",
+    ]
+
+
+def test_evaluate_separates_an_incomplete_result_from_an_input_error(
+    copied_example: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An awaited `must` review is code 3 and still writes a receipt."""
+    (copied_example / "evidence" / "manual" / "keyboard-review.json").unlink()
+    receipt = tmp_path / "receipt.json"
+    assert (
+        main(
+            _evaluate_args(
+                copied_example / "obligations.toml", copied_example / "evidence", receipt
+            )
+        )
+        == 3
+    )
+    assert _last_stdout_json(capsys)["overall_status"] == "incomplete"
+    assert receipt.is_file()
+
+
+def test_evaluate_reports_a_rejected_result_as_an_observed_failure_with_a_receipt(
+    copied_example: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (copied_example / "evidence" / "automated" / "axe-summary.json").write_text(
+        '{"summary":{"critical_violations":1}}',
+        encoding="utf-8",
+    )
+    receipt = tmp_path / "receipt.json"
+    assert (
+        main(
+            _evaluate_args(
+                copied_example / "obligations.toml", copied_example / "evidence", receipt
+            )
+        )
+        == 1
+    )
+    assert _last_stdout_json(capsys)["overall_status"] == "rejected"
+    assert receipt.is_file()
+
+
+@pytest.mark.parametrize("broken", ["manifest", "evidence_root", "source"])
+def test_evaluate_input_errors_are_code_two_and_write_no_receipt(
+    broken: str,
+    copied_example: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Code 2 must mean "no result document", never an evaluated outcome."""
+    manifest = copied_example / "obligations.toml"
+    evidence_root = copied_example / "evidence"
+    if broken == "manifest":
+        manifest.write_text("not toml [[[", encoding="utf-8")
+    elif broken == "evidence_root":
+        evidence_root = copied_example / "absent"
+    else:
+        source = copied_example / "source" / "section-508-acceptance.txt"
+        source.write_text(source.read_text(encoding="utf-8") + "amended", encoding="utf-8")
+
+    receipt = tmp_path / "receipt.json"
+    assert main(_evaluate_args(manifest, evidence_root, receipt)) == 2
+    assert capsys.readouterr().out == ""
+    assert not receipt.exists()
+
+
+def test_verify_separates_an_integrity_finding_from_an_unreadable_receipt(
+    tmp_path: Path,
+    example_manifest: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    receipt = tmp_path / "receipt.json"
+    assert (
+        main(_evaluate_args(example_manifest, example_manifest.parent / "evidence", receipt)) == 0
+    )
+    _last_stdout_json(capsys)
+
+    document = json.loads(receipt.read_text(encoding="utf-8"))
+    payload = document["payload"]
+    assert isinstance(payload, dict)
+    payload["overall_status"] = "accepted"
+    receipt.write_text(json.dumps(document), encoding="utf-8")
+
+    assert main(["verify", str(receipt)]) == 1
+    assert "obligation-receipts:" in capsys.readouterr().err
+    assert main(["verify", str(tmp_path / "absent.json")]) == 2
+    assert "No such file" in capsys.readouterr().err
