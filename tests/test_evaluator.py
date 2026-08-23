@@ -6,6 +6,7 @@ import pytest
 
 from obligation_receipts.canonical import sha256_bytes
 from obligation_receipts.evaluator import (
+    _compare,
     _evaluate_assertion,
     _json_pointer,
     _load_json_artifact,
@@ -215,6 +216,7 @@ def test_json_pointer_supports_arrays_and_escaping() -> None:
     assert value == 7
     assert _json_pointer({"items": []}, "/items/2") == (False, None)
     assert _json_pointer({"items": []}, "/items/nope") == (False, None)
+    assert _json_pointer({"a": "scalar"}, "/a/b") == (False, None)
     assert _json_pointer(1, "/anything") == (False, None)
     assert _json_pointer({"root": 1}, "") == (True, {"root": 1})
 
@@ -327,6 +329,32 @@ def test_defensive_assertion_shape_fails_closed(tmp_path: Path) -> None:
         path="artifact.json",
     )
     assert _evaluate_assertion(spec, tmp_path).status is ResultStatus.MISSING
+
+
+def test_assertion_pointer_into_scalar_returns_fail(tmp_path: Path) -> None:
+    _write_json(tmp_path / "artifact.json", {"a": "scalar_string"})
+    spec = EvidenceSpec(
+        evidence_id="scalar-descend",
+        kind=EvidenceKind.JSON_ASSERTION,
+        path="artifact.json",
+        pointer="/a/b",
+        operator="eq",
+        expected="something",
+    )
+    result = _evaluate_assertion(spec, tmp_path)
+    assert result.status is ResultStatus.FAIL
+
+
+def test_compare_exists_operator_direct() -> None:
+    assert _compare("value", "exists", None) is True
+    assert _compare(0, "exists", None) is True
+    assert _compare(False, "exists", None) is True
+    assert _compare(None, "exists", None) is False
+
+
+def test_compare_unsupported_operator_and_type_returns_false() -> None:
+    assert _compare("abc", "unknown_op", "def") is False
+    assert _compare("abc", "gt", 5) is False
 
 
 def test_overall_status_algebra() -> None:
