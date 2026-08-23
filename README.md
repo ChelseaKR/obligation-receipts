@@ -136,17 +136,40 @@ evidence content, evaluator detail text, and all aggregate dispositions. It is
 unsigned and fixes `obligation_evaluation_complete` to `false`, even when the
 selected evidence passes.
 
-Exit codes preserve the selected evidence state:
-
-| Code | State |
-|---:|---|
-| 0 | `pass` |
-| 1 | observed `fail` |
-| 2 | manifest, lookup, path, or other input error; no result document |
-| 3 | automated evidence `missing` or malformed |
-| 4 | attestation `review_required`, including missing, malformed, or unbound |
-
 See the [single-evidence check format](docs/SINGLE-EVIDENCE-CHECK.md).
+
+## Exit codes
+
+Every command draws from one band, so an automated acceptance pipeline can tell
+an evaluated negative outcome apart from a tool or input error:
+
+| Code | Meaning |
+|---:|---|
+| 0 | every `must` obligation passed |
+| 1 | evidence was read and did not pass; a result document exists |
+| 2 | manifest, lookup, path, argument, or document input error; **no result document** |
+| 3 | required evidence was absent or unusable, so nothing was observed |
+| 4 | an attestation is unbound, malformed, or awaiting review |
+
+Code 2 is reserved: it always means no result document was produced, and no
+evaluated state maps onto it. A `rejected` evaluation and an unreadable manifest
+are different facts about a contract, and a caller must never have to guess
+which one it received.
+
+| Command | 0 | 1 | 3 | 4 |
+|---|---|---|---|---|
+| `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
+| `verify` | verified | payload digest or replay mismatch | — | — |
+| `check-evidence` | `pass` | observed `fail` | `missing` or malformed | `review_required` |
+| `validate`, `evidence-plan`, `verify-evidence-plan`, `research-metrics` | success | — | — | — |
+
+`accepted_with_findings` exits 0 because every `must` obligation passed and only
+a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
+missing evidence, awaiting review, and unverifiable into one state and cannot
+honestly choose between them; `check-evidence` reports the per-item code.
+
+A `verify` failure is code 1, not 2: a receipt that does not reproduce is an
+integrity finding about that receipt, not a failure to read it.
 
 `verify receipt.json` checks the receipt's non-circular payload checksum.
 Supplying the manifest and evidence root also performs a fresh replay and

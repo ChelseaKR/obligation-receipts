@@ -9,6 +9,7 @@ from pathlib import Path
 
 from obligation_receipts.canonical import canonical_json_bytes
 from obligation_receipts.evaluator import evaluate_manifest
+from obligation_receipts.exit_codes import INPUT_ERROR, OBSERVED_FAILURE, OK, evaluation_exit_code
 from obligation_receipts.manifest import ManifestError, load_manifest
 from obligation_receipts.models import JsonValue
 from obligation_receipts.plan import (
@@ -104,7 +105,7 @@ def _validate(path: Path) -> int:
             "status": "valid",
         }
     )
-    return 0
+    return OK
 
 
 def _evaluate(
@@ -125,7 +126,7 @@ def _evaluate(
             "receipt": str(out),
         }
     )
-    return 0 if evaluation.overall_status.value.startswith("accepted") else 2
+    return evaluation_exit_code(evaluation.overall_status)
 
 
 def _evidence_plan(
@@ -149,7 +150,7 @@ def _evidence_plan(
             "status": "plan_generated",
         }
     )
-    return 0
+    return OK
 
 
 def _verify_evidence_plan(plan_path: Path, manifest_path: Path | None) -> int:
@@ -163,7 +164,7 @@ def _verify_evidence_plan(plan_path: Path, manifest_path: Path | None) -> int:
             "status": ("replay_verified" if manifest is not None else "checksum_self_consistent"),
         }
     )
-    return 0
+    return OK
 
 
 def _check_evidence(
@@ -185,25 +186,30 @@ def _verify(
     manifest_path: Path | None,
     evidence_root: Path | None,
 ) -> int:
-    receipt = load_receipt(receipt_path)
-    payload_sha256 = verify_receipt(receipt)
-    replayed = False
     if (manifest_path is None) != (evidence_root is None):
         raise ReceiptError("--manifest and --evidence-root must be supplied together")
+    receipt = load_receipt(receipt_path)
+    replay: dict[str, JsonValue] | None = None
     if manifest_path is not None and evidence_root is not None:
-        manifest = load_manifest(manifest_path)
-        evaluation = evaluate_manifest(manifest, evidence_root)
-        if receipt["payload"] != evaluation.payload():
+        replay = evaluate_manifest(load_manifest(manifest_path), evidence_root).payload()
+    # Reading the receipt, manifest, and evidence root above can only fail as an
+    # input error. From here on every failure is a finding about the receipt
+    # itself, so it must not be reported as one.
+    try:
+        payload_sha256 = verify_receipt(receipt)
+        if replay is not None and receipt["payload"] != replay:
             raise ReceiptError("receipt payload does not match a fresh evidence replay")
-        replayed = True
+    except ReceiptError as exc:
+        print(f"obligation-receipts: {exc}", file=sys.stderr)
+        return OBSERVED_FAILURE
     _print_json(
         {
             "payload_sha256": payload_sha256,
-            "replayed": replayed,
+            "replayed": replay is not None,
             "status": "verified",
         }
     )
-    return 0
+    return OK
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -229,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
             return _verify(args.receipt, args.manifest, args.evidence_root)
         if args.command == "research-metrics":
             _print_json(analyze_ratings(args.rater_a, args.rater_b))
-            return 0
+            return OK
     except (
         ManifestError,
         EvidencePlanError,
@@ -242,8 +248,8 @@ def main(argv: list[str] | None = None) -> int:
         json.JSONDecodeError,
     ) as exc:
         print(f"obligation-receipts: {exc}", file=sys.stderr)
-        return 2
-    return 2
+        return INPUT_ERROR
+    return INPUT_ERROR
 
 
 if __name__ == "__main__":
