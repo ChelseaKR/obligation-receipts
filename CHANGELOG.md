@@ -18,6 +18,13 @@ All notable changes will be documented here.
   digests.
 - AI-assisted development disclosure in the README, separating development
   provenance from the no-LLM product boundary.
+- A `protect-tags` GitHub ruleset requiring signed, non-deletable,
+  non-rewritable tags, alongside the existing protected-`main` ruleset.
+- SBOM generation and a keyless cosign signature over `dist/SHA256SUMS` in the
+  release-candidate workflow, next to the existing build-provenance
+  attestation.
+- `security` and `incident` repository labels, and a private-advisory
+  reporting route documented in `SECURITY.md`.
 
 ### Changed
 
