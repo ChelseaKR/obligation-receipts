@@ -5,6 +5,7 @@ import pytest
 import obligation_receipts.manifest as manifest_module
 from obligation_receipts.manifest import ManifestError, load_manifest
 from obligation_receipts.models import Classification
+from obligation_receipts.paths import BoundedPathError
 
 
 def _replace(path: Path, old: str, new: str) -> None:
@@ -230,4 +231,73 @@ def test_rejects_multiple_missing_required_contract_fields(copied_example: Path)
         manifest_path, 'authority = "Synthetic public-sector software acceptance exercise"\n', ""
     )
     with pytest.raises(ManifestError, match=r"contract is missing field\(s\): authority, version"):
+        load_manifest(manifest_path)
+
+
+def test_rejects_non_list_evidence(copied_example: Path) -> None:
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        '[[obligations.evidence]]\nid = "a1-axe-summary"\nkind = "json_assertion"\npath = "automated/axe-summary.json"\npointer = "/summary/critical_violations"\noperator = "eq"\nexpected = 0\n',
+        'evidence = "not-a-list"\n',
+    )
+    with pytest.raises(
+        ManifestError, match=r"obligations\[0\]\.evidence must be an array of tables"
+    ):
+        load_manifest(manifest_path)
+
+
+def test_rejects_unverifiable_obligation_declaring_evidence(copied_example: Path) -> None:
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'reason = "No population, task, method, threshold, or accountable reviewer is defined."',
+        'reason = "No population, task, method, threshold, or accountable reviewer is defined."\n\n[[obligations.evidence]]\nid = "a4-evidence"\nkind = "json_assertion"\npath = "automated/axe-summary.json"\npointer = "/summary/critical_violations"\noperator = "eq"\nexpected = 0',
+    )
+    with pytest.raises(
+        ManifestError, match=r"obligations\[3\] unverifiable obligations cannot declare evidence"
+    ):
+        load_manifest(manifest_path)
+
+
+def test_rejects_verifiable_obligation_without_evidence(copied_example: Path) -> None:
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        '[[obligations.evidence]]\nid = "a1-axe-summary"\nkind = "json_assertion"\npath = "automated/axe-summary.json"\npointer = "/summary/critical_violations"\noperator = "eq"\nexpected = 0\n\n',
+        "",
+    )
+    with pytest.raises(
+        ManifestError, match=r"obligations\[0\] must declare at least one evidence item"
+    ):
+        load_manifest(manifest_path)
+
+
+def test_rejects_blank_reason_when_present_on_verifiable_obligation(copied_example: Path) -> None:
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'id = "a1-zero-critical-violations"',
+        'id = "a1-zero-critical-violations"\nreason = "   "',
+    )
+    with pytest.raises(
+        ManifestError, match=r"obligations\[0\]\.reason must be a non-empty string when present"
+    ):
+        load_manifest(manifest_path)
+
+
+def test_rejects_manifest_when_read_fails_bounded_path(
+    copied_example: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_path = copied_example / "obligations.toml"
+
+    def raise_bounded_error(*args: object, **kwargs: object) -> bytes:
+        raise BoundedPathError("artifact path is not a regular file")
+
+    monkeypatch.setattr(manifest_module, "read_regular_file", raise_bounded_error)
+    with pytest.raises(
+        ManifestError,
+        match="manifest cannot be read safely: artifact path is not a regular file",
+    ):
         load_manifest(manifest_path)
