@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import cast
 
 from obligation_receipts.canonical import (
+    MAX_JSON_NODES,
     StrictJsonError,
     canonical_json_bytes,
     loads_json_strict,
@@ -253,22 +254,36 @@ def _enum[EnumValue: StrEnum](
         raise EvidencePlanError(f"{context}.{key} is unsupported") from exc
 
 
+def _validate_assertion_pointer(pointer: object, context: str) -> str:
+    if not isinstance(pointer, str) or not (pointer == "" or pointer.startswith("/")):
+        raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
+    for segment in pointer.removeprefix("/").split("/") if pointer else ():
+        index = 0
+        decoded: list[str] = []
+        while index < len(segment):
+            if segment[index] != "~":
+                decoded.append(segment[index])
+                index += 1
+                continue
+            if index + 1 >= len(segment) or segment[index + 1] not in {"0", "1"}:
+                raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
+            decoded.append("~" if segment[index + 1] == "0" else "/")
+            index += 2
+        segment_key = "".join(decoded)
+        if segment_key.isdigit():
+            if segment_key != "0" and segment_key.startswith("0"):
+                raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
+            if len(segment_key) > len(str(MAX_JSON_NODES)):
+                raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
+    return pointer
+
+
 def _validate_assertion(value: JsonValue | None, context: str) -> None:
     assertion = _closed_object(value, _ASSERTION_FIELDS, f"{context}.assertion")
     pointer = assertion.get("pointer")
     operator = assertion.get("operator")
     expected_declared = assertion.get("expected_declared")
-    if not isinstance(pointer, str) or not (pointer == "" or pointer.startswith("/")):
-        raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
-    for segment in pointer.removeprefix("/").split("/") if pointer else ():
-        index = 0
-        while index < len(segment):
-            if segment[index] != "~":
-                index += 1
-                continue
-            if index + 1 >= len(segment) or segment[index + 1] not in {"0", "1"}:
-                raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
-            index += 2
+    _validate_assertion_pointer(pointer, context)
     if not isinstance(operator, str) or operator not in _OPERATORS:
         raise EvidencePlanError(f"{context}.assertion.operator is unsupported")
     if not isinstance(expected_declared, bool) or expected_declared is (operator == "exists"):

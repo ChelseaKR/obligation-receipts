@@ -68,6 +68,31 @@ def test_rejects_nonportable_source_path_before_source_access(
             'pointer = "summary/critical_violations"',
             "RFC 6901",
         ),
+        (
+            'pointer = "/summary/critical_violations"',
+            'pointer = "/summary/critical_violations~"',
+            "RFC 6901",
+        ),
+        (
+            'pointer = "/summary/critical_violations"',
+            'pointer = "/summary/critical_violations~2"',
+            "RFC 6901",
+        ),
+        (
+            'pointer = "/summary/critical_violations"',
+            'pointer = "/summary/violations/00"',
+            "RFC 6901",
+        ),
+        (
+            'pointer = "/summary/critical_violations"',
+            'pointer = "/summary/violations/01"',
+            "RFC 6901",
+        ),
+        (
+            'pointer = "/summary/critical_violations"',
+            f'pointer = "/summary/violations/{"9" * 10_000}"',
+            "RFC 6901",
+        ),
         ('operator = "eq"', 'operator = "approximately"', "operator"),
         (
             'kind = "review_attestation"',

@@ -392,6 +392,36 @@ def test_rehashed_plan_rejects_duplicate_ids_and_invalid_unverifiable_state(
         verify_evidence_plan(plan)
 
 
+@pytest.mark.parametrize(
+    "invalid_pointer",
+    [
+        "not-a-pointer",
+        "/bad~2escape",
+        "/dangling~",
+        "/items/00",
+        "/items/01",
+        f"/items/{'9' * 10_000}",
+    ],
+)
+def test_rehashed_plan_rejects_malformed_assertion_pointer(
+    example_manifest: Path,
+    invalid_pointer: str,
+) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    first = _obligations(plan)[0]
+    assert isinstance(first, dict)
+    requirements = first["evidence_requirements"]
+    assert isinstance(requirements, list)
+    automated = requirements[0]
+    assert isinstance(automated, dict)
+    assertion = automated["assertion"]
+    assert isinstance(assertion, dict)
+    assertion["pointer"] = invalid_pointer
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="pointer is invalid"):
+        verify_evidence_plan(plan)
+
+
 def test_rehashed_plan_rejects_malformed_assertion_and_attestation(
     example_manifest: Path,
 ) -> None:

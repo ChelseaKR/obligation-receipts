@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from obligation_receipts.canonical import (
+    MAX_JSON_NODES,
     StrictJsonError,
     canonical_json_bytes,
     sha256_bytes,
@@ -133,6 +134,31 @@ def _evidence_path(value: Mapping[str, object], context: str) -> str:
     return path
 
 
+def _validate_json_pointer(pointer: object, context: str) -> str:
+    if not isinstance(pointer, str) or not (pointer == "" or pointer.startswith("/")):
+        raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
+    for segment in pointer.removeprefix("/").split("/") if pointer else ():
+        index = 0
+        decoded: list[str] = []
+        while index < len(segment):
+            character = segment[index]
+            if character != "~":
+                decoded.append(character)
+                index += 1
+                continue
+            if index + 1 >= len(segment) or segment[index + 1] not in {"0", "1"}:
+                raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
+            decoded.append("~" if segment[index + 1] == "0" else "/")
+            index += 2
+        segment_key = "".join(decoded)
+        if segment_key.isdigit():
+            if segment_key != "0" and segment_key.startswith("0"):
+                raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
+            if len(segment_key) > len(str(MAX_JSON_NODES)):
+                raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
+    return pointer
+
+
 def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
     value = _mapping(raw, context)
     _exact_keys(value, _EVIDENCE_KEYS, context)
@@ -144,8 +170,7 @@ def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
     operator = value.get("operator")
     expected = value.get("expected")
     if kind is EvidenceKind.JSON_ASSERTION:
-        if not isinstance(pointer, str) or not (pointer == "" or pointer.startswith("/")):
-            raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
+        pointer = _validate_json_pointer(pointer, context)
         if not isinstance(operator, str) or operator not in _OPERATORS:
             raise ManifestError(f"{context}.operator must be one of {sorted(_OPERATORS)}")
         if operator != "exists" and "expected" not in value:
