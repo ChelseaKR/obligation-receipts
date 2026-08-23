@@ -202,52 +202,32 @@ reason = "not machine evaluable"
 
 
 def test_rejects_non_table_contract_section(tmp_path: Path) -> None:
-    source = tmp_path / "source.txt"
-    source.write_text("source", encoding="utf-8")
+    # A structural change (table -> scalar) doesn't fit the copied_example +
+    # _replace() pattern the rest of this file uses for single-line
+    # mutations, so this one stays hand-written -- but bounded to just the
+    # one section under test, not a full manifest with an unreachable
+    # source file and obligation the assertion never gets to.
     manifest = tmp_path / "obligations.toml"
-    manifest.write_text(
-        """
-contract = "not-a-table"
-
-[[obligations]]
-id = "obligation-1"
-clause_ref = "1"
-text = "A test obligation."
-classification = "unverifiable"
-criticality = "should"
-owner = "owner"
-reason = "not machine evaluable"
-""",
-        encoding="utf-8",
-    )
+    manifest.write_text('contract = "not-a-table"\n\n[[obligations]]\n', encoding="utf-8")
     with pytest.raises(ManifestError, match="contract must be a table"):
         load_manifest(manifest)
 
 
-def test_rejects_missing_required_contract_fields(tmp_path: Path) -> None:
-    source = tmp_path / "source.txt"
-    source.write_text("source", encoding="utf-8")
-    manifest = tmp_path / "obligations.toml"
-    manifest.write_text(
-        """
-[contract]
-id = "contract-1"
-title = "Missing version"
-authority = "approved"
-effective_date = "2026-01-01"
-source_path = "source.txt"
-source_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-
-[[obligations]]
-id = "obligation-1"
-clause_ref = "1"
-text = "A test obligation."
-classification = "unverifiable"
-criticality = "should"
-owner = "owner"
-reason = "not machine evaluable"
-""",
-        encoding="utf-8",
-    )
+def test_rejects_missing_required_contract_fields(copied_example: Path) -> None:
+    manifest_path = copied_example / "obligations.toml"
+    _replace(manifest_path, 'version = "1.0"\n', "")
     with pytest.raises(ManifestError, match="contract is missing field\\(s\\): version"):
-        load_manifest(manifest)
+        load_manifest(manifest_path)
+
+
+def test_rejects_multiple_missing_required_contract_fields(copied_example: Path) -> None:
+    # The single-field case above can't tell sorted(_CONTRACT_KEYS -
+    # set(value)) + ", ".join(...) apart from a hardcoded one-field message;
+    # this pins the join/order behavior for more than one.
+    manifest_path = copied_example / "obligations.toml"
+    _replace(manifest_path, 'version = "1.0"\n', "")
+    _replace(
+        manifest_path, 'authority = "Synthetic public-sector software acceptance exercise"\n', ""
+    )
+    with pytest.raises(ManifestError, match=r"contract is missing field\(s\): authority, version"):
+        load_manifest(manifest_path)
