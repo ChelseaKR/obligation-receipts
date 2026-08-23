@@ -199,3 +199,56 @@ reason = "not machine evaluable"
     )
     with pytest.raises(ManifestError, match="16777216-byte limit"):
         load_manifest(manifest)
+
+
+def test_rejects_non_table_contract_section(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("source", encoding="utf-8")
+    manifest = tmp_path / "obligations.toml"
+    manifest.write_text(
+        """
+contract = "not-a-table"
+
+[[obligations]]
+id = "obligation-1"
+clause_ref = "1"
+text = "A test obligation."
+classification = "unverifiable"
+criticality = "should"
+owner = "owner"
+reason = "not machine evaluable"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ManifestError, match="contract must be a table"):
+        load_manifest(manifest)
+
+
+def test_rejects_missing_required_contract_fields(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("source", encoding="utf-8")
+    manifest = tmp_path / "obligations.toml"
+    manifest.write_text(
+        """
+[contract]
+id = "contract-1"
+title = "Missing version"
+authority = "approved"
+effective_date = "2026-01-01"
+source_path = "source.txt"
+source_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[obligations]]
+id = "obligation-1"
+clause_ref = "1"
+text = "A test obligation."
+classification = "unverifiable"
+criticality = "should"
+owner = "owner"
+reason = "not machine evaluable"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ManifestError, match="contract is missing field\\(s\\): version"):
+        load_manifest(manifest)
+
