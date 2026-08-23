@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,17 @@ def test_json_shape_rejects_excessive_node_count() -> None:
         validate_json_value([None] * MAX_JSON_NODES)
 
 
-def test_finite_floats_survive_validation_and_canonicalization() -> None:
+def test_validate_json_value_accepts_finite_floats() -> None:
+    # validate_json_value returns the exact same object it was given, not a
+    # rebuilt copy, so comparing the result to `data` itself is tautological
+    # (data == data is always true) and can't detect the traversal silently
+    # corrupting a nested value. Comparing against an independent snapshot
+    # taken *before* the call actually exercises that nothing changed.
     data = {"score": 0.5, "values": [12.0, -3.14, 0.0]}
-    assert validate_json_value(data) == data
+    snapshot = copy.deepcopy(data)
+    assert validate_json_value(data) == snapshot
+
+
+def test_canonical_json_bytes_formats_finite_floats() -> None:
+    data = {"score": 0.5, "values": [12.0, -3.14, 0.0]}
     assert canonical_json_bytes(data) == b'{"score":0.5,"values":[12.0,-3.14,0.0]}'
