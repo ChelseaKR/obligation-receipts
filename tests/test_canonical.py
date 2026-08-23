@@ -33,4 +33,3 @@ def test_finite_floats_survive_validation_and_canonicalization() -> None:
     data = {"score": 0.5, "values": [12.0, -3.14, 0.0]}
     assert validate_json_value(data) == data
     assert canonical_json_bytes(data) == b'{"score":0.5,"values":[12.0,-3.14,0.0]}'
-
