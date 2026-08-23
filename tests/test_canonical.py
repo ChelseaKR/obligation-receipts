@@ -27,3 +27,9 @@ def test_hash_helpers(tmp_path: Path) -> None:
 def test_json_shape_rejects_excessive_node_count() -> None:
     with pytest.raises(StrictJsonError, match="node limit"):
         validate_json_value([None] * MAX_JSON_NODES)
+
+
+def test_finite_floats_survive_validation_and_canonicalization() -> None:
+    data = {"score": 0.5, "values": [12.0, -3.14, 0.0]}
+    assert validate_json_value(data) == data
+    assert canonical_json_bytes(data) == b'{"score":0.5,"values":[12.0,-3.14,0.0]}'
