@@ -1,4 +1,7 @@
 import json
+import runpy
+import subprocess
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -424,3 +427,23 @@ def test_verify_separates_an_integrity_finding_from_an_unreadable_receipt(
     assert "obligation-receipts:" in capsys.readouterr().err
     assert main(["verify", str(tmp_path / "absent.json")]) == 2
     assert "No such file" in capsys.readouterr().err
+
+
+def test_cli_main_entry_point_subprocess() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "obligation_receipts.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "obligation-receipts" in result.stdout
+    assert "evaluate" in result.stdout
+    assert "verify" in result.stdout
+
+
+def test_cli_main_guard_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["obligation-receipts", "--help"])
+    with pytest.raises(SystemExit) as exc_info:
+        runpy.run_module("obligation_receipts.cli", run_name="__main__")
+    assert exc_info.value.code == 0
