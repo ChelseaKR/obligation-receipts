@@ -251,4 +251,3 @@ reason = "not machine evaluable"
     )
     with pytest.raises(ManifestError, match="contract is missing field\\(s\\): version"):
         load_manifest(manifest)
-
