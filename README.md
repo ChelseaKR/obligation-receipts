@@ -243,7 +243,7 @@ See [Architecture](docs/ARCHITECTURE.md),
 | Quality & Metrics | Applies; ≥90% branch coverage is merge-blocking |
 | Code Quality | Applies; Python 3.12, Ruff, strict mypy, and pytest |
 | Security & Supply-Chain | Applies; bounded local evidence, zero runtime dependencies, pinned CI actions, SAST, secret and dependency scanning are committed |
-| CI/CD | Applies; committed workflows mirror local verification and demo paths; hosted execution and branch rulesets do not yet exist |
+| CI/CD | Applies; committed workflows mirror local verification and demo paths; the `protect-main` ruleset requires a pull request and all six CI checks (`verify`, `package`, `dependency-scan`, `secret-scan`, `sast`, `zizmor`); no CodeQL workflow exists yet |
 | Release/versioning | Applies; build-only candidate workflow, no public or registry publication |
 | Accessibility | N/A — no HTML or graphical interface in M0 |
 | Observability | Tier C; service telemetry is out of scope because the CLI is offline and emits no operational logs |
