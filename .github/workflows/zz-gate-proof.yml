@@ -1,0 +1,18 @@
+# TEMPORARY. This file exists only to prove that a red `zizmor` check blocks a
+# merge. It is never merged to main and its branch is deleted afterwards.
+# It trips exactly one zizmor finding (excessive-permissions: no `permissions:`
+# block) and contains no exploitable pattern. The job is guarded by `if: false`
+# and its only trigger is a manual dispatch, so it can never execute.
+name: gate-proof
+
+on:
+  workflow_dispatch:
+
+jobs:
+  proof:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
