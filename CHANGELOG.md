@@ -76,8 +76,30 @@ All notable changes will be documented here.
   the receipt, so an incomplete invocation is reported as such instead of as
   whatever the receipt path happened to fail on first.
 
+- Require every CI check in the `protect-main` ruleset, not only `verify`.
+  `package`, `dependency-scan`, `secret-scan`, `sast` and `zizmor` all ran,
+  all reported, and none could stop a merge, so the secret, SAST, SCA and
+  workflow-lint gates were advisory in practice. The ruleset now also requires
+  a pull request, at zero required approvals, which records the solo-maintainer
+  carve-out as a rule rather than as an absence, and closes the direct-push
+  path to `main`.
+- Assert in `tests/test_supply_chain.py` that the Dependabot ignore list and the
+  cross-repository reusable-workflow pins stay in step, in both directions, so
+  neither a renamed workflow nor a stale ignore entry can quietly reintroduce a
+  failing weekly update job or suppress a live dependency.
+
 ### Fixed
 
+- Restore the weekly `Dependabot Updates` job to green. The `github-actions`
+  updater failed on 2026-07-24, 07-31, 08-07, 08-14 and 08-21 because
+  `release.yml` pins a reusable workflow in the private `portfolio-standards`
+  repo that Dependabot's repo-scoped credentials cannot read; one recorded
+  `git_dependencies_not_reachable` error fails the whole run even though every
+  other action was checked and its pull requests were opened. The pin is now
+  ignored explicitly, with the trade-off and the credential-based re-entry
+  condition documented in `.github/dependabot.yml`, alongside the same
+  repository's already-documented effect on `.github/zizmor.yml`. The sibling
+  `pip` updater was unaffected throughout.
 - Restore the `zizmor` CI check to green. Its `impostor-commit` audit cannot
   read the private `portfolio-standards` repo that `release.yml` pins as a
   reusable workflow, and errors out for the whole file rather than skipping

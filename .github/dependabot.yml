@@ -14,3 +14,38 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    # `release.yml` pins a reusable workflow from ChelseaKR/portfolio-standards,
+    # a *private* repository. Dependabot's repo-scoped credentials cannot read
+    # it. The proxy logs `403 ... Either the repo doesn't exist, or Dependabot
+    # doesn't have access to it`, the updater records
+    # `git_dependencies_not_reachable` for that one dependency, and a single
+    # recorded error fails the entire run, even though every other action was
+    # checked and its pull requests were opened. That is what made the weekly
+    # `Dependabot Updates` job red on 2026-07-24, 07-31, 08-07, 08-14 and 08-21
+    # while the sibling `pip` job stayed green the whole time.
+    #
+    # An `ignore` entry carrying only `dependency-name`, with no `versions` and
+    # no `update-types`, means "every version". Dependabot drops such a
+    # dependency in `Job#allowed_update?` before it builds an update checker, so
+    # the unreachable fetch never happens, no error is recorded, and the run
+    # exits 0. The file parser's own reachability probe still logs the 403, but
+    # `GitCommitChecker#git_repo_reachable?` swallows that one.
+    #
+    # What this trades away: this single pin is no longer bumped automatically.
+    # It must be bumped by hand, exactly like the same repository's pin in
+    # `.github/zizmor.yml`, which is disabled for the same underlying reason.
+    # `tests/test_supply_chain.py` fails if this entry and the `uses:` line in
+    # `release.yml` ever drift apart, so a rename cannot quietly restore the
+    # weekly failure.
+    #
+    # To restore automatic updates, give Dependabot a credential that can read
+    # portfolio-standards: store a fine-grained PAT with read access to that
+    # repository as a *Dependabot* secret, add a top-level `registries:` block
+    # of `type: git` against https://github.com with `username: x-access-token`
+    # and that secret as the password, reference the registry from this update
+    # entry, and delete this `ignore` block. The organization-level "Grant
+    # Dependabot access to private repositories" setting is not an option here:
+    # it exists only for organizations, and both repositories are owned by a
+    # personal account.
+    ignore:
+      - dependency-name: ChelseaKR/portfolio-standards/.github/workflows/release-authorize.yml
