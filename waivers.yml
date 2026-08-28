@@ -1,0 +1,50 @@
+# Waiver and exception registry for obligation-receipts.
+# Schema: STANDARDS/WAIVERS-SCHEMA.md (version 1). No entry, no waiver.
+version: 1
+waivers:
+  - id: WVR-008
+    control: CICD-13
+    repo: obligation-receipts
+    kind: other
+    reason: >-
+      CICD-13 requires a CodeQL `language: actions` analysis among the required
+      status checks. Code scanning / GitHub Advanced Security is not enabled on
+      this private repository, so a CodeQL workflow cannot upload results: it
+      would fail at the upload step with "Code scanning is not enabled for this
+      repository", which is the same constraint already documented in
+      `.github/workflows/ci.yml` for zizmor's SARIF path. Adding a workflow
+      that can only ever fail would be worse than the gap it closes. The
+      remaining five AUTO controls in scope are all binding: the `protect-main`
+      ruleset requires `verify`, `package`, `dependency-scan`, `secret-scan`,
+      `sast`, and `zizmor` by name, and zizmor's ability to turn a pull request
+      red was proved on 2026-08-27 (run 33034714935, exit 12). Workflow static
+      analysis is therefore covered by zizmor, not by CodeQL. Revisit when
+      either code scanning is enabled for this repository or the repository
+      becomes public.
+    owner: chelseakr
+    granted: 2026-08-28
+    expires: 2026-11-30
+    link: https://github.com/ChelseaKR/obligation-receipts/issues/16
+  - id: WVR-009
+    control: REL-14
+    repo: obligation-receipts
+    kind: other
+    reason: >-
+      The portfolio's `release_workflow` control recognizes one hardened shape:
+      a workflow_dispatch tag input, a trusted-main ref guard, a read-only
+      signed-tag verification job, and a checkout-free write job that performs
+      publication. `release.yml` here implements the build side of that shape
+      (SBOM, build-provenance attestation, and a keyless cosign signature over
+      `dist/SHA256SUMS`) but deliberately holds no publication authority at all:
+      `contents: write`, `gh release create`, and every publish action are
+      absent, and `tests/test_supply_chain.py` asserts their absence as a
+      merge-blocking boundary. The remaining elements of the control all
+      presuppose a publish step that this project has decided not to have in
+      M0. Declaring the whole standard `N/A` would be the false alternative:
+      versioning, a changelog, and a signed candidate build all exist and are
+      maintained. Revisit when M0 exits and publication authority is actually
+      wanted; the control becomes implementable in the same change that adds it.
+    owner: chelseakr
+    granted: 2026-08-28
+    expires: 2026-11-30
+    link: docs/RELEASE.md

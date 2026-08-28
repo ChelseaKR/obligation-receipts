@@ -211,6 +211,9 @@ The overall result is:
 - No raw evidence content in receipts; only bounded results and artifact hashes.
 - Duplicate JSON keys, non-finite numbers, invalid UTF-8, and JSON deeper than 64
   levels or larger than 100,000 nodes fail closed.
+- A manifest-authored JSON pointer that is not well formed under RFC 6901 is an
+  input error at load time, not an observed failure. All three commands share
+  one definition of well formed, so they cannot disagree about a manifest.
 - Evidence is parsed and hashed from the same bounded byte snapshot.
 - Contract-source hashing is capped at 16 MiB; manifests, JSON evidence, plans,
   and receipts are capped at 2 MiB.
@@ -238,21 +241,28 @@ See [Architecture](docs/ARCHITECTURE.md),
 
 ## Standards Conformance
 
-| Standard | M0 status |
+One row per canonical standard, in the labels and states the portfolio
+conformance checker reads. The second column is the state, not a summary: an
+under-reported row would fail this repo's own argument that a record says
+exactly what was checked and nothing more.
+
+| Standard | State |
 |---|---|
-| Quality & Metrics | Applies; ≥90% branch coverage is merge-blocking |
-| Code Quality | Applies; Python 3.12, Ruff, strict mypy, and pytest |
-| Security & Supply-Chain | Applies; bounded local evidence, zero runtime dependencies, pinned CI actions, SAST, secret and dependency scanning are committed |
-| CI/CD | Applies; committed workflows mirror local verification and demo paths; the `protect-main` ruleset requires a pull request and all six CI checks (`verify`, `package`, `dependency-scan`, `secret-scan`, `sast`, `zizmor`); no CodeQL workflow exists yet |
-| Release/versioning | Applies; build-only candidate workflow, no public or registry publication |
-| Accessibility | N/A — no HTML or graphical interface in M0 |
-| Observability | Tier C; service telemetry is out of scope because the CLI is offline and emits no operational logs |
-| Performance | Applies narrowly; bounded synthetic median/p95 reporting exists, with no latency threshold until a real workload is observed |
-| Internationalization | N/A — expert-authored machine contract and English-only CLI for M0 |
-| AI evaluation | N/A — no model or AI SDK |
-| Documentation | Applies |
-| Responsible-Tech Framework | Applies; see [current audit](docs/RESPONSIBLE-TECH-AUDITS.md) |
-| Incident response and data governance | Applies; synthetic/public discovery data only |
+| Responsible-Tech Framework | Applies — see the [current audit](docs/RESPONSIBLE-TECH-AUDITS.md) |
+| Code Quality | Applies — Python 3.12, Ruff, strict mypy, and pytest, all merge-blocking through `make verify` |
+| Security & Supply-Chain | Applies — bounded local evidence, zero runtime dependencies, digest-pinned CI actions, and merge-blocking SAST, secret, and dependency scans |
+| CI/CD | Applies — hosted CI on `push` and `pull_request` since 2026-08-05; the `protect-main` ruleset, active since 2026-08-07, requires a pull request and all six checks (`verify`, `package`, `dependency-scan`, `secret-scan`, `sast`, `zizmor`); gap tracked in #16 for the CodeQL `language: actions` element, waived in [waivers.yml](waivers.yml) |
+| Release & Versioning | Applies — build-only release-candidate workflow with SBOM, provenance attestation, and a keyless signature over `dist/SHA256SUMS`; it deliberately holds no publication authority, so the rest of the hardened-release shape presupposes a publish step this project does not have; recorded as WVR-009 in [waivers.yml](waivers.yml) |
+| Observability | Applies — Tier C: the CLI is offline, emits no operational telemetry, and says so in [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
+| Performance | Applies — narrowly: `make benchmark` reports a bounded synthetic median and p95, with no invented latency threshold until a representative workload is observed |
+| Accessibility | N/A — no HTML, graphical, or other user-facing interface exists in M0; the only surface is an offline CLI |
+| Internationalization | N/A — expert-authored machine manifest and English-only CLI in M0, with the exemption's scope, re-entry seam, owner, and review date in [docs/I18N.md](docs/I18N.md) |
+| AI Evaluation | N/A — the shipped tool contains no model, AI SDK, or LLM call in validation, evaluation, or verification |
+| Documentation | Applies — PRD, architecture, threat model, ADRs, and per-format specifications are committed and referenced below |
+| Quality & Metrics | Applies — a 90% branch-coverage floor is merge-blocking, and the technical metrics ledger is in [docs/ROADMAP.md](docs/ROADMAP.md) |
+| AI Development Measurement | Applies — development is AI-assisted under an accountable human maintainer, as recorded under Provenance; no Track A baseline has been measured, and none is claimed |
+| Incident Response | Applies — see [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) and the private-advisory route in `SECURITY.md` |
+| Data Governance | Applies — synthetic and public discovery data only; see [docs/DATA-GOVERNANCE.md](docs/DATA-GOVERNANCE.md) |
 
 ## Provenance
 
