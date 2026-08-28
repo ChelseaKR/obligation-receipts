@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -231,3 +232,125 @@ def test_rejects_multiple_missing_required_contract_fields(copied_example: Path)
     )
     with pytest.raises(ManifestError, match=r"contract is missing field\(s\): authority, version"):
         load_manifest(manifest_path)
+
+
+@pytest.mark.parametrize(
+    "pointer",
+    [
+        "/summary/critical_violations~",
+        "/summary/~2critical_violations",
+        "/~",
+        "/a~b",
+        "summary/critical_violations",
+    ],
+)
+def test_rejects_malformed_json_pointer_at_manifest_load(
+    copied_example: Path, pointer: str
+) -> None:
+    """A pointer no JSON document can ever satisfy is an authoring defect.
+
+    Regression test for #26. Before this check existed, `evaluate` turned the
+    typo into a deterministic `fail` and an overall `rejected` -- a receipt
+    claiming a real observed failure -- while `evidence-plan` refused the same
+    manifest as invalid input. The exit-code contract requires the input error.
+    """
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'pointer = "/summary/critical_violations"',
+        f'pointer = "{pointer}"',
+    )
+    with pytest.raises(ManifestError, match="RFC 6901"):
+        load_manifest(manifest_path)
+
+
+@pytest.mark.parametrize("pointer", ["", "/", "/a~0b", "/a~1b", "/summary/violations/00", "//"])
+def test_accepts_every_well_formed_json_pointer(copied_example: Path, pointer: str) -> None:
+    """Well-formed pointers load even when they cannot resolve.
+
+    `/summary/violations/00` is deliberately included. RFC 6901 defines `00` as
+    a valid reference token; it can never address an array element but it can
+    address an object member literally named `00`. Rejecting it at load time
+    would refuse a manifest that some evidence document legitimately satisfies,
+    so it stays a runtime non-match rather than an authoring error.
+    """
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'pointer = "/summary/critical_violations"',
+        f'pointer = "{pointer}"',
+    )
+    manifest = load_manifest(manifest_path)
+    assert manifest.obligations[0].evidence[0].pointer == pointer
+
+
+def test_rejects_non_array_evidence(copied_example: Path) -> None:
+    """#33: `evidence` declared as something other than an array of tables."""
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'reason = "No population, task, method, threshold, or accountable reviewer is defined."',
+        'reason = "Still unverifiable."\nevidence = "not-an-array"',
+    )
+    with pytest.raises(ManifestError, match="evidence must be an array of tables"):
+        load_manifest(manifest_path)
+
+
+def test_rejects_unverifiable_obligation_that_declares_evidence(copied_example: Path) -> None:
+    """#33: an obligation cannot be both unverifiable and evidenced."""
+    manifest_path = copied_example / "obligations.toml"
+    _replace(manifest_path, 'classification = "automated"', 'classification = "unverifiable"')
+    _replace(
+        manifest_path,
+        'owner = "Agency acceptance lead"',
+        'owner = "Agency acceptance lead"\nreason = "Declared unverifiable."',
+    )
+    with pytest.raises(ManifestError, match="cannot declare evidence"):
+        load_manifest(manifest_path)
+
+
+def test_rejects_evidenced_classification_with_no_evidence(copied_example: Path) -> None:
+    """#33: a classification that requires evidence must declare some."""
+    manifest_path = copied_example / "obligations.toml"
+    _replace(manifest_path, 'classification = "unverifiable"', 'classification = "automated"')
+    with pytest.raises(ManifestError, match="at least one evidence item"):
+        load_manifest(manifest_path)
+
+
+@pytest.mark.parametrize("reason", ['""', '"   "', "5", "true"])
+def test_rejects_blank_or_non_string_reason_on_an_evidenced_obligation(
+    copied_example: Path, reason: str
+) -> None:
+    """#33: an optional `reason` that is present must still say something."""
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'owner = "Agency acceptance lead"',
+        f'owner = "Agency acceptance lead"\nreason = {reason}',
+    )
+    with pytest.raises(ManifestError, match="reason must be a non-empty string when present"):
+        load_manifest(manifest_path)
+
+
+def test_accepts_an_optional_reason_alongside_declared_evidence(copied_example: Path) -> None:
+    """The `reason` check must reject blanks, not every reason."""
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'owner = "Agency acceptance lead"',
+        'owner = "Agency acceptance lead"\nreason = "Scoped to the automated sweep."',
+    )
+    assert load_manifest(manifest_path).obligations[0].reason == "Scoped to the automated sweep."
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is unavailable")
+def test_rejects_a_manifest_that_is_not_a_regular_file(tmp_path: Path) -> None:
+    """#33: the generic (non-oversize) BoundedPathError branch of load_manifest.
+
+    Its three siblings in the same try/except -- malformed TOML, invalid
+    UTF-8, and oversized -- each already had a test.
+    """
+    fifo = tmp_path / "obligations.toml"
+    os.mkfifo(fifo)
+    with pytest.raises(ManifestError, match="cannot be read safely"):
+        load_manifest(fifo)

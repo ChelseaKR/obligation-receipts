@@ -1,13 +1,14 @@
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from obligation_receipts.canonical import sha256_bytes
 from obligation_receipts.evaluator import (
+    _compare,
     _evaluate_assertion,
-    _json_pointer,
     _load_json_artifact,
     _overall_status,
     evaluate_manifest,
@@ -18,10 +19,12 @@ from obligation_receipts.models import (
     Criticality,
     EvidenceKind,
     EvidenceSpec,
+    JsonValue,
     ObligationResult,
     OverallStatus,
     ResultStatus,
 )
+from obligation_receipts.pointer import resolve as _json_pointer
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -349,3 +352,42 @@ def test_overall_status_algebra() -> None:
     assert (
         _overall_status((_result(ResultStatus.FAIL, Criticality.MUST),)) is OverallStatus.REJECTED
     )
+
+
+def test_pointer_descending_through_a_scalar_fails_without_raising(tmp_path: Path) -> None:
+    """Regression test for #24.
+
+    A manifest pointer that walks into a scalar (`/a/b` where `a` is a string)
+    is well formed and reaches the evaluator. It must resolve to "not found"
+    and become a bounded result, never an exception out of the evaluator.
+    """
+    _write_json(tmp_path / "artifact.json", {"a": "scalar"})
+    spec = EvidenceSpec(
+        evidence_id="scalar-descent",
+        kind=EvidenceKind.JSON_ASSERTION,
+        path="artifact.json",
+        pointer="/a/b",
+        operator="eq",
+        expected="anything",
+    )
+    result = _evaluate_assertion(spec, tmp_path)
+    assert result.status is ResultStatus.FAIL
+    assert result.artifact_sha256 is not None
+
+
+def test_pointer_reports_an_absent_object_member_as_not_found() -> None:
+    assert _json_pointer({"present": 1}, "/absent") == (False, None)
+    assert _json_pointer({"outer": {"present": 1}}, "/outer/absent") == (False, None)
+
+
+@pytest.mark.parametrize("operator", ["exists", "matches", ""])
+@pytest.mark.parametrize("value", [1, 1.5, "value", None])
+def test_compare_refuses_operators_it_does_not_answer(operator: str, value: object) -> None:
+    """`_compare` answers only the six comparison operators, fail-closed.
+
+    `exists` is answered one level up, from the pointer's found flag, because a
+    member whose value is JSON `null` exists. `_compare` deliberately no longer
+    carries a second, contradicting definition of it (#24); asked anyway, it
+    returns the fail-closed default rather than inventing an answer.
+    """
+    assert _compare(cast(JsonValue, value), operator, cast(JsonValue, value)) is False

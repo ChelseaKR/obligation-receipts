@@ -1,9 +1,13 @@
+import argparse
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+import obligation_receipts.cli as cli_module
 from obligation_receipts.cli import main
 
 
@@ -424,3 +428,160 @@ def test_verify_separates_an_integrity_finding_from_an_unreadable_receipt(
     assert "obligation-receipts:" in capsys.readouterr().err
     assert main(["verify", str(tmp_path / "absent.json")]) == 2
     assert "No such file" in capsys.readouterr().err
+
+
+def _rewrite(path: Path, old: str, new: str) -> None:
+    content = path.read_text(encoding="utf-8")
+    assert old in content
+    path.write_text(content.replace(old, new), encoding="utf-8")
+
+
+def test_malformed_pointer_is_an_input_error_and_produces_no_receipt(
+    tmp_path: Path,
+    copied_example: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Regression test for #26.
+
+    A dangling `~` in a manifest-authored pointer used to load cleanly, then
+    become a deterministic `fail` and an overall `rejected`: exit 1 with a
+    complete, checksum-verified receipt claiming a real observed failure, on
+    evidence that in fact satisfies the intended assertion. The exit-code
+    contract reserves code 2 for "no result document", which is what an
+    authoring defect in the approved manifest is.
+    """
+    manifest = copied_example / "obligations.toml"
+    _rewrite(
+        manifest,
+        'pointer = "/summary/critical_violations"',
+        'pointer = "/summary/critical_violations~"',
+    )
+    receipt = tmp_path / "receipt.json"
+    assert (
+        main(
+            [
+                "evaluate",
+                str(manifest),
+                "--evidence-root",
+                str(copied_example / "evidence"),
+                "--out",
+                str(receipt),
+            ]
+        )
+        == 2
+    )
+    assert not receipt.exists()
+    assert "RFC 6901" in capsys.readouterr().err
+
+
+def test_every_command_agrees_that_a_malformed_pointer_is_an_input_error(
+    tmp_path: Path,
+    copied_example: Path,
+) -> None:
+    """One manifest, one verdict.
+
+    `evaluate` reported `rejected`, `check-evidence` reported `fail`, and
+    `evidence-plan` reported an input error, for the same manifest.
+    """
+    manifest = copied_example / "obligations.toml"
+    _rewrite(
+        manifest,
+        'pointer = "/summary/critical_violations"',
+        'pointer = "/summary/critical_violations~"',
+    )
+    evidence_root = str(copied_example / "evidence")
+    assert main(["validate", str(manifest)]) == 2
+    assert main(["evidence-plan", str(manifest), "--out", str(tmp_path / "plan.json")]) == 2
+    assert (
+        main(["check-evidence", str(manifest), "a1-axe-summary", "--evidence-root", evidence_root])
+        == 2
+    )
+    assert (
+        main(
+            [
+                "evaluate",
+                str(manifest),
+                "--evidence-root",
+                evidence_root,
+                "--out",
+                str(tmp_path / "receipt.json"),
+            ]
+        )
+        == 2
+    )
+
+
+def test_module_entry_point_runs_as_main(tmp_path: Path) -> None:
+    """Regression test for #23.
+
+    `python -m obligation_receipts.cli` is the only in-repo path that executes
+    the `if __name__ == "__main__":` guard, and it is the closest available
+    stand-in for the packaged `obligation-receipts` console script, which
+    resolves to the same `cli:main`.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-m", "obligation_receipts.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0
+    assert "obligation-receipts" in completed.stdout
+
+
+def test_module_entry_point_propagates_the_input_error_exit_code(tmp_path: Path) -> None:
+    """The guard must hand `main()`'s code to the shell, not swallow it.
+
+    Run from an empty directory with a bare relative argument, so every element
+    of the command line is a literal.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-m", "obligation_receipts.cli", "validate", "absent.toml"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert completed.returncode == 2
+    assert completed.stdout == ""
+
+
+def test_packaged_console_script_is_declared_for_the_same_entry_point() -> None:
+    """The console script and the module guard must not drift apart."""
+    pyproject = (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'obligation-receipts = "obligation_receipts.cli:main"' in pyproject
+    cli_source = (Path(__file__).parents[1] / "src" / "obligation_receipts" / "cli.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'if __name__ == "__main__":\n    raise SystemExit(main())\n' in cli_source
+
+
+def test_unhandled_subcommand_fails_closed_as_an_input_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A subcommand added to the parser but not wired into dispatch must not exit 0.
+
+    `main`'s trailing return is the fail-closed default for exactly that
+    mistake. Untested, it would be one edit away from becoming a silent success
+    that produces no result document and says nothing.
+    """
+
+    class _UnwiredParser:
+        def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
+            return argparse.Namespace(command="not-wired-up")
+
+    monkeypatch.setattr(cli_module, "_parser", _UnwiredParser)
+    assert cli_module.main([]) == 2
+
+
+def test_evidence_plan_refuses_a_plan_without_a_payload(
+    tmp_path: Path, example_manifest: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI must not print a summary for a plan it cannot read."""
+    monkeypatch.setattr(
+        cli_module,
+        "build_evidence_plan",
+        lambda manifest, *, include_local_details: {"payload": None},
+    )
+    monkeypatch.setattr(cli_module, "write_evidence_plan", lambda path, plan: None)
+    assert main(["evidence-plan", str(example_manifest), "--out", str(tmp_path / "plan.json")]) == 2
