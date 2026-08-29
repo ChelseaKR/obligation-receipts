@@ -18,9 +18,16 @@
 - [x] Bounded two-rater discovery metrics utility
 - [x] Typed-wheel content gate
 - [x] Redacted-by-default, manifest-bound evidence collection plan
-- [x] Hosted CI on push and pull request, since 2026-08-05
-- [x] `protect-main` requiring a pull request and all six checks, since
-      2026-08-07; zizmor's ability to block was proved on 2026-08-27
+- [x] Hosted CI on push and pull request. `.github/workflows/ci.yml` has
+      carried both triggers since the repository's first commit; no date is
+      given here because the triggers are checkable against the workflow and a
+      typed date is not.
+- [x] `protect-main` requiring a pull request and all six checks. The ruleset
+      has been active since 2026-08-07, but it required only `verify` until the
+      change recorded in the CHANGELOG under "Require every CI check in the
+      `protect-main` ruleset"; before that the other five ran and reported
+      without being able to block. zizmor's ability to block was proved on
+      2026-08-27.
 - [x] One RFC 6901 pointer definition shared by load, plan, and evaluation,
       so an authoring defect is an input error rather than an observed fail
 
@@ -43,7 +50,7 @@
 - Static accessible trace report.
 - Amendment diff and invalidation rules.
 - Signed release pipeline with actual publication authority. Hosted CI is no
-  longer listed here: it shipped on 2026-08-05, ahead of the thresholds.
+  longer listed here: it shipped with the first commit, ahead of the thresholds.
 
 ## Later
 
