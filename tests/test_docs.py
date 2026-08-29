@@ -227,3 +227,172 @@ def test_every_waiver_names_a_standards_control_and_this_repo() -> None:
         assert entry.get("repo") == "obligation-receipts", (
             f"{entry.get('id')}: waiver in this repo names repo {entry.get('repo')!r}"
         )
+
+
+_ROOT = Path(__file__).parents[1]
+_CI = _ROOT / ".github/workflows/ci.yml"
+_ROADMAP = _ROOT / "docs/ROADMAP.md"
+_PYPROJECT = _ROOT / "pyproject.toml"
+_PLANS = _ROOT / "docs/plans"
+
+# Enough English to name the job count in prose. A seventh job fails the
+# lookup rather than passing with the wrong word.
+_NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight"}
+
+
+def _job_name_pattern(job: str) -> str:
+    return rf"^  {re.escape(job)}:\n(?:    .*\n)*?    name:"
+
+
+def _ci_job_ids() -> list[str]:
+    """Top-level job ids in `ci.yml`, read structurally.
+
+    The dev group has no YAML parser and the runtime has no dependencies at
+    all, so the workflow is read the way `waivers.yml` is. Job ids sit at two
+    spaces under `jobs:`; everything inside a job sits at four or more. No job
+    sets `name:`, so the id is also the required-status-check context.
+    """
+    section = re.search(r"^jobs:\n(.*)\Z", _CI.read_text(encoding="utf-8"), re.M | re.S)
+    if section is None:
+        raise AssertionError("ci.yml has no top-level `jobs:` block")
+    ids = re.findall(r"^  ([a-z][a-z0-9-]*):[ \t]*$", section.group(1), re.M)
+    if not ids:
+        raise AssertionError("no job ids parsed out of ci.yml; the reader is broken, not the file")
+    if any(re.search(_job_name_pattern(job), _CI.read_text(encoding="utf-8"), re.M) for job in ids):
+        raise AssertionError("a job sets `name:`, so its check context is no longer its id")
+    return ids
+
+
+def _cicd_state() -> str:
+    row = next(row for row in _conformance_rows() if row[0] == "CI/CD")
+    return " | ".join(row[1:])
+
+
+def _roadmap_bullet(opening: str) -> str:
+    """One roadmap checklist item, rejoined across the lines it wraps onto."""
+    lines = _ROADMAP.read_text(encoding="utf-8").splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith(f"- [x] {opening}")]
+    if len(starts) != 1:
+        raise AssertionError(
+            f"expected exactly one roadmap item opening {opening!r}, found {len(starts)}"
+        )
+    collected = [lines[starts[0]]]
+    for line in lines[starts[0] + 1 :]:
+        if not line.startswith("      "):
+            break
+        collected.append(line.strip())
+    return " ".join(collected)
+
+
+def test_the_documented_ci_triggers_are_the_triggers_the_workflow_has() -> None:
+    """The claim the documents make about hosted CI, checked against `ci.yml`.
+
+    This is the checkable half of what `since 2026-08-05` used to assert. The
+    triggers are in the workflow; the date was in nobody's file.
+    """
+    events = re.search(r"^on:\n((?:  \S.*\n|    .*\n)+)", _CI.read_text(encoding="utf-8"), re.M)
+    if events is None:
+        raise AssertionError("ci.yml has no top-level `on:` block")
+    triggers = set(re.findall(r"^  ([a-z_]+):", events.group(1), re.M))
+    assert triggers == {"push", "pull_request"}, f"ci.yml triggers on {sorted(triggers)}"
+    assert re.search(r"^  push:\n    branches: \[main\]$", _CI.read_text(encoding="utf-8"), re.M)
+    state = _cicd_state()
+    assert "`push`" in state and "`pull_request`" in state
+    assert "push and pull request" in _roadmap_bullet("Hosted CI")
+
+
+def test_the_hosted_ci_claim_carries_no_hand_typed_date() -> None:
+    """A date typed into prose is a claim nothing checks, and this one was wrong.
+
+    Both documents dated hosted CI to 2026-08-05. `.github/workflows/ci.yml`
+    has carried `push` and `pull_request` since the repository's first commit,
+    and no commit in this repository is dated 2026-08-05 at all. The triggers
+    are derivable from the workflow, so the date was removed rather than
+    corrected.
+    """
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", _roadmap_bullet("Hosted CI"))
+    for path in (_ROOT / "README.md", _ROADMAP):
+        assert "2026-08-05" not in path.read_text(encoding="utf-8"), (
+            f"{path.name} restates a date the repository has no commit for"
+        )
+
+
+def test_the_readme_names_every_ci_job_as_a_required_check() -> None:
+    """`all six checks` has to keep meaning every job the workflow defines.
+
+    A seventh job that nobody adds to the ruleset, or to this row, is exactly
+    the failure #16 recorded: a check that runs, reports, and cannot block.
+    """
+    jobs = _ci_job_ids()
+    state = _cicd_state()
+    assert f"all {_NUMBER_WORDS[len(jobs)]} checks" in state, (
+        f"ci.yml defines {len(jobs)} jobs {jobs}, which the CI/CD row does not say"
+    )
+    missing = [job for job in jobs if f"`{job}`" not in state]
+    assert not missing, f"the CI/CD row does not name the required checks {missing}"
+
+
+def test_the_ruleset_claim_does_not_backdate_the_requirement_to_the_rulesets_creation() -> None:
+    """The ruleset predates what it requires, and the row has to say so.
+
+    `protect-main` has been active since 2026-08-07, but it required only
+    `verify` until the change the CHANGELOG records under "Require every CI
+    check"; the other five jobs reported without being able to block. Dating
+    the six-check requirement to the ruleset's creation claimed roughly three
+    weeks of blocking that did not happen.
+    """
+    changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "Require every CI check in the `protect-main` ruleset" in changelog
+    for text in (_cicd_state(), _roadmap_bullet("`protect-main`")):
+        assert "only `verify`" in text, "the row backdates the six-check requirement"
+
+
+def _coverage_floor() -> int:
+    """The one place the branch-coverage floor is configured."""
+    text = _PYPROJECT.read_text(encoding="utf-8")
+    addopts = re.search(r"^--cov-fail-under=(\d+)", text, re.M)
+    report = re.search(r"^fail_under = (\d+)$", text, re.M)
+    assert addopts is not None, "pyproject.toml sets no --cov-fail-under"
+    assert report is not None, "pyproject.toml sets no [tool.coverage.report] fail_under"
+    assert addopts.group(1) == report.group(1), "the two coverage floors in pyproject.toml disagree"
+    return int(addopts.group(1))
+
+
+_FLOOR_IN_PROSE = re.compile(
+    r"(\d+)\s*%\s*branch[- ]coverage|branch[- ]coverage\s*(?:≥|>=|of)?\s*(\d+)\s*%",
+    re.I,
+)
+_FLOOR_DOCUMENTS = ("AGENTS.md", "README.md", "CONTRIBUTING.md")
+
+
+def test_every_document_stating_the_coverage_floor_states_the_configured_one() -> None:
+    """The floor is counted from `pyproject.toml`, not typed into prose.
+
+    `CONTRIBUTING.md` was cited as documenting the 90% floor while containing
+    no percentage at all. It carries the floor now, and all three documents are
+    read against the setting, so raising the floor without updating them is a
+    failing test rather than a stale sentence.
+    """
+    floor = _coverage_floor()
+    for name in _FLOOR_DOCUMENTS:
+        text = (_ROOT / name).read_text(encoding="utf-8")
+        stated = {int(a or b) for a, b in _FLOOR_IN_PROSE.findall(text)}
+        assert stated, f"{name} states no branch-coverage floor; pyproject.toml sets {floor}%"
+        assert stated == {floor}, (
+            f"{name} states {sorted(stated)}% but pyproject.toml sets {floor}%"
+        )
+
+
+def test_a_committed_plan_does_not_present_itself_as_uncommitted() -> None:
+    """`Nothing in this pass is committed` was written in a committed file.
+
+    The plan under `docs/plans/` is tracked, and the pass it describes reached
+    `main`. A record that denies its own existence is the one claim a reader
+    can falsify just by reading it.
+    """
+    tracked = sorted(path for path in _PLANS.glob("*.md"))
+    assert tracked, "docs/plans holds no plan; drop this guard or restore the file"
+    for path in tracked:
+        text = path.read_text(encoding="utf-8")
+        for denial in ("Nothing in this pass is committed", "Working-tree only."):
+            assert denial not in text, f"{path.name} is committed and says {denial!r}"

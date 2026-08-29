@@ -1,8 +1,10 @@
 # Improvement plan, 2026-08-28
 
-Working-tree only. Nothing in this pass is committed; the accountable maintainer
-holds commit permission and will grant it separately. This file is the durable
-record of the plan and its running log.
+The pass itself was working-tree only: nothing was committed while it ran,
+because the accountable maintainer holds commit permission. The work was merged
+to `main` afterwards, in pull request #38, this file included, so the constraint
+recorded below is what held during the pass and not a description of this file's
+present state. This file is the durable record of the plan and its running log.
 
 ## Constraint recorded at the top of the session
 
@@ -174,3 +176,9 @@ is not a broken gate, but it is loose enough that a large one could slip. It is
 documented as 90% in `AGENTS.md`, the README, and `CONTRIBUTING.md`, and the
 portfolio's own `coverage_floor_value` control reads that number, so raising it
 is a standards decision rather than a cleanup, and it was left alone.
+
+Correction made after this pass: `CONTRIBUTING.md` carried no percentage at all
+when the sentence above was written, so the pointer named a document that did
+not document the floor. It carries the floor now, and `tests/test_docs.py`
+checks all three documents against `pyproject.toml`, so the pointer cannot go
+stale again. The floor itself was not changed.

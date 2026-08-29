@@ -100,6 +100,35 @@ All notable changes will be documented here.
 
 ### Fixed
 
+- Stop dating hosted CI to a day this repository has no commit for. The README
+  and `docs/ROADMAP.md` both said `since 2026-08-05`; `.github/workflows/ci.yml`
+  has carried `push` and `pull_request` since the repository's first commit, and
+  `git log --all` finds no commit dated 2026-08-05 at all. The date is gone
+  rather than corrected, because the triggers are readable out of the workflow
+  and a typed date is readable out of nothing. `tests/test_docs.py` now checks
+  the documented triggers against the workflow and fails on a date typed back
+  into that line.
+- Stop backdating the `protect-main` requirements to the ruleset's creation.
+  The ruleset has been active since 2026-08-07, but until the change recorded
+  above under Changed it required only `verify`; the other five checks ran,
+  reported, and could not block. Dating "a pull request and all six checks" to
+  2026-08-07 claimed about three weeks of merge-blocking that did not happen.
+  Both documents now say which requirement arrived when, and a test fails if
+  the qualification is dropped. The `all six checks` phrasing is also checked
+  against the jobs `ci.yml` actually defines, so a seventh job cannot quietly
+  become a check nothing requires.
+- Document the branch-coverage floor where `docs/plans/improvement-plan.md` said
+  it was documented. That file named `AGENTS.md`, the README and
+  `CONTRIBUTING.md`; `CONTRIBUTING.md` contained no percentage at all.
+  `CONTRIBUTING.md` now states the floor, and a test reads `--cov-fail-under`
+  out of `pyproject.toml` and fails if any of the three documents states a
+  different number or stops stating one. The floor itself is unchanged at 90%.
+- Stop a committed record from denying that it is committed.
+  `docs/plans/improvement-plan.md` opened with "Nothing in this pass is
+  committed" while being, itself, a file on `main`. The constraint is now
+  described as what held during the pass, the outcome says the work was merged
+  in pull request #38, and a test fails on a tracked plan that claims
+  otherwise.
 - Report a malformed manifest JSON pointer as the input error it is. A pointer
   with a dangling or invalid `~` escape used to load cleanly, then become a
   deterministic `fail` and an overall `rejected`: exit code 1 and a complete,
