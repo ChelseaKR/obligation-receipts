@@ -25,8 +25,14 @@ jobs:
           python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: uv.lock
+      # `--locked`, not `--frozen`. `--frozen` installs exactly what uv.lock
+      # records and never reads pyproject.toml, so it cannot see the two
+      # disagree and exits 0 on a drifted lock -- it will happily install a
+      # version the lock does not record. `--locked` re-resolves against the
+      # manifest and fails instead. `make verify` re-asserts it (lock-check
+      # first, then `uv run --locked` on every gate).
       - name: Install locked environment
-        run: uv sync --frozen
+        run: uv sync --locked
       - name: Verify
         run: make verify
       - name: Exercise and replay the synthetic example
@@ -57,7 +63,7 @@ jobs:
           python-version: "3.12"
       - name: Audit locked runtime dependencies
         run: |
-          uv export --frozen --no-dev --no-emit-project --no-hashes > /tmp/runtime-requirements.txt
+          uv export --locked --no-dev --no-emit-project --no-hashes > /tmp/runtime-requirements.txt
           if test -s /tmp/runtime-requirements.txt; then
             uvx --from pip-audit==2.10.1 pip-audit --strict --requirement /tmp/runtime-requirements.txt
           else
