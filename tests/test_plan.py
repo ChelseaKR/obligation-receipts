@@ -536,3 +536,199 @@ def test_serialized_plan_avoids_outcome_claims(example_manifest: Path) -> None:
         '"compliant"',
     ):
         assert forbidden not in encoded
+
+
+def _requirement(plan: dict[str, JsonValue], index: int = 0) -> dict[str, JsonValue]:
+    obligation = _obligations(plan)[index]
+    assert isinstance(obligation, dict)
+    requirements = obligation["evidence_requirements"]
+    assert isinstance(requirements, list)
+    requirement = requirements[0]
+    assert isinstance(requirement, dict)
+    return requirement
+
+
+def test_portable_plan_cannot_smuggle_an_evidence_path_back_in(
+    example_manifest: Path,
+) -> None:
+    """The redaction promise, enforced on verification and not only on generation.
+
+    `portable_redacted` is the default and the profile the README calls safe to
+    hand to someone else. Verification has to refuse a portable plan that
+    carries a filesystem path, or the promise holds only for plans this tool
+    happened to write itself.
+    """
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    _requirement(plan)["path"] = "automated/axe-summary.json"
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="must be redacted in portable mode"):
+        verify_evidence_plan(plan)
+
+
+def test_local_sensitive_plan_rejects_an_escaping_evidence_path(
+    example_manifest: Path,
+) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest), include_local_details=True)
+    _requirement(plan)["path"] = "../../etc/passwd"
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="remain inside the evidence root"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_evidence_kind_that_contradicts_its_classification(
+    example_manifest: Path,
+) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    _requirement(plan)["kind"] = "review_attestation"
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="does not match its classification"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_an_assertion_carrying_an_attestation_binding(
+    example_manifest: Path,
+) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    attestation = _requirement(plan, 1)
+    _requirement(plan)["attestation_binding"] = attestation["attestation_binding"]
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="automated evidence cannot have a binding"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_an_attestation_carrying_an_assertion(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    _requirement(plan, 1)["assertion"] = _requirement(plan)["assertion"]
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="attestation evidence cannot have an assertion"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_altered_attestation_required_fields(example_manifest: Path) -> None:
+    """The required-field list is the collection instruction; it cannot be shortened."""
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    binding = _requirement(plan, 1)["attestation_binding"]
+    assert isinstance(binding, dict)
+    fields = binding["required_fields"]
+    assert isinstance(fields, list)
+    binding["required_fields"] = fields[:-1]
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="required fields are inconsistent"):
+        verify_evidence_plan(plan)
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("operator", "matches", "operator is unsupported"),
+        ("expected_declared", False, "expected declaration is inconsistent"),
+    ],
+)
+def test_plan_rejects_an_inconsistent_assertion(
+    example_manifest: Path, key: str, value: JsonValue, message: str
+) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    assertion = _requirement(plan)["assertion"]
+    assert isinstance(assertion, dict)
+    assertion[key] = value
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match=message):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_an_expected_value_declared_absent(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    assertion = _requirement(plan)["assertion"]
+    assert isinstance(assertion, dict)
+    assertion["operator"] = "exists"
+    assertion["expected_declared"] = False
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="expected value is not allowed"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_a_blank_required_string(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    _requirement(plan)["id"] = "   "
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="must be a non-empty string"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_an_unsupported_enum_value(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    obligation = _obligations(plan)[0]
+    assert isinstance(obligation, dict)
+    obligation["criticality"] = "nice_to_have"
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="is unsupported"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_non_array_requirements(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    obligation = _obligations(plan)[0]
+    assert isinstance(obligation, dict)
+    obligation["evidence_requirements"] = "one item"
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="evidence_requirements must be an array"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_an_evidenced_obligation_carrying_a_no_evidence_reason(
+    example_manifest: Path,
+) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    obligation = _obligations(plan)[0]
+    assert isinstance(obligation, dict)
+    obligation["no_evidence_reason"] = "no_evaluable_evidence_declared"
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="evidence requirements are inconsistent"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_an_empty_obligation_array(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    _payload(plan)["obligations"] = []
+    _payload(plan)["obligation_count"] = 0
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="obligations must be a non-empty array"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_rejects_evidence_ids_reused_across_obligations(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    borrowed = _requirement(plan)["id"]
+    reused = _requirement(plan, 1)
+    reused["id"] = borrowed
+    binding = reused["attestation_binding"]
+    assert isinstance(binding, dict)
+    fixed = binding["fixed_values"]
+    assert isinstance(fixed, dict)
+    fixed["evidence_id"] = borrowed
+    _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="evidence ids must be unique"):
+        verify_evidence_plan(plan)
+
+
+def test_plan_generation_refuses_an_evidence_path_outside_the_root(
+    copied_example: Path,
+) -> None:
+    """Generation refuses too, before a plan exists to verify.
+
+    The manifest loader already rejects a traversal path, so this guard is only
+    reachable if a future loader change lets one through; asserting it keeps
+    the plan builder's own boundary from becoming untested dead weight.
+    """
+    manifest = load_manifest(copied_example / "obligations.toml")
+    spec = manifest.obligations[0].evidence[0]
+    object.__setattr__(spec, "path", "../outside.json")
+    with pytest.raises(EvidencePlanError, match="remain inside the evidence root"):
+        build_evidence_plan(manifest)
+
+
+def test_plan_rejects_an_unsupported_document_schema(example_manifest: Path) -> None:
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    plan["schema_version"] = "obligation-receipts/receipt/v0.1"
+    with pytest.raises(EvidencePlanError, match="unsupported evidence plan document schema"):
+        verify_evidence_plan(plan)

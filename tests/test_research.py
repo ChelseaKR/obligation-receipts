@@ -3,21 +3,13 @@ from pathlib import Path
 
 import pytest
 
+import obligation_receipts.research as research
 from obligation_receipts.research import ResearchError, analyze_ratings, load_ratings
 
-HEADER = [
-    "sample_id",
-    "clause_id",
-    "source_locator",
-    "classification",
-    "criticality",
-    "proposed_evidence",
-    "accountable_owner",
-    "mapping_minutes",
-    "requires_interpretation",
-    "current_tool_already_handles",
-    "notes",
-]
+# The one definition, so a fixture cannot quietly agree with a header the tool
+# no longer accepts. The shipped rater template is the independent baseline; see
+# test_shipped_rater_template_header_matches_the_frozen_protocol.
+HEADER = list(research._HEADER)
 
 
 def _row(
@@ -175,4 +167,72 @@ def test_empty_and_malformed_csv_are_rejected(tmp_path: Path) -> None:
         load_ratings(path)
     path.write_text('sample_id,"unterminated', encoding="utf-8")
     with pytest.raises(ResearchError, match="malformed"):
+        load_ratings(path)
+
+
+_RATER_TEMPLATE = Path(__file__).parents[1] / "docs" / "discovery" / "mapping-rater-template.csv"
+
+
+def test_shipped_rater_template_header_matches_the_frozen_protocol() -> None:
+    """The workbook two raters will fill in must be the one the tool can read.
+
+    Nothing else binds these two together. If `_HEADER` and the shipped
+    template drift apart, the drift is invisible until two independent raters
+    have already completed their workbooks and `research-metrics` rejects both
+    (#15).
+    """
+    header = _RATER_TEMPLATE.read_text(encoding="utf-8").splitlines()[0]
+    assert tuple(header.split(",")) == research._HEADER
+
+
+def test_shipped_rater_template_example_row_parses_under_the_protocol(
+    tmp_path: Path,
+) -> None:
+    """The template's own example row must satisfy every cell rule it demonstrates."""
+    copied = tmp_path / "rater.csv"
+    copied.write_bytes(_RATER_TEMPLATE.read_bytes())
+    ratings, digest = load_ratings(copied)
+    assert len(ratings) == 1
+    assert len(digest) == 64
+
+
+def _csv(rows: list[list[str]]) -> str:
+    return "\n".join([",".join(HEADER)] + [",".join(row) for row in rows]) + "\n"
+
+
+def test_rejects_non_numeric_mapping_minutes(tmp_path: Path) -> None:
+    path = tmp_path / "rater.csv"
+    path.write_text(_csv([_row("c1", "automated", minutes="about ten")]), encoding="utf-8")
+    with pytest.raises(ResearchError, match="finite nonnegative number"):
+        load_ratings(path)
+
+
+def test_rejects_a_row_whose_column_count_does_not_match_the_frozen_header(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "rater.csv"
+    short = _row("c1", "automated")[:-1]
+    path.write_text(_csv([short]), encoding="utf-8")
+    with pytest.raises(ResearchError, match="does not match the frozen CSV columns"):
+        load_ratings(path)
+
+
+def test_rejects_a_header_only_file(tmp_path: Path) -> None:
+    path = tmp_path / "rater.csv"
+    path.write_text(",".join(HEADER) + "\n", encoding="utf-8")
+    with pytest.raises(ResearchError, match="must contain 1-"):
+        load_ratings(path)
+
+
+def test_rejects_more_rows_than_the_protocol_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The upper bound, exercised without writing ten thousand rows."""
+    monkeypatch.setattr(research, "_MAX_ROWS", 1)
+    path = tmp_path / "rater.csv"
+    path.write_text(
+        _csv([_row("c1", "automated"), _row("c2", "manual_review")]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ResearchError, match="must contain 1-"):
         load_ratings(path)

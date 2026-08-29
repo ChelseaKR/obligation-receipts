@@ -30,6 +30,7 @@ from obligation_receipts.paths import (
     read_regular_file,
     validate_portable_relative_path,
 )
+from obligation_receipts.pointer import is_well_formed
 
 _MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 _MAX_SOURCE_BYTES = 16 * 1024 * 1024
@@ -144,7 +145,11 @@ def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
     operator = value.get("operator")
     expected = value.get("expected")
     if kind is EvidenceKind.JSON_ASSERTION:
-        if not isinstance(pointer, str) or not (pointer == "" or pointer.startswith("/")):
+        if not isinstance(pointer, str) or not is_well_formed(pointer):
+            # A malformed pointer is an authoring defect in the approved
+            # manifest, not evidence content. Catching it here, where all three
+            # commands load, keeps it an input error instead of letting the
+            # evaluator turn it into a deterministic observed `fail`.
             raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
         if not isinstance(operator, str) or operator not in _OPERATORS:
             raise ManifestError(f"{context}.operator must be one of {sorted(_OPERATORS)}")

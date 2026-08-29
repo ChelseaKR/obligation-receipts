@@ -31,6 +31,7 @@ from obligation_receipts.paths import (
     read_regular_file,
     validate_portable_relative_path,
 )
+from obligation_receipts.pointer import is_well_formed
 
 _MAX_PLAN_BYTES = 2 * 1024 * 1024
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -258,17 +259,10 @@ def _validate_assertion(value: JsonValue | None, context: str) -> None:
     pointer = assertion.get("pointer")
     operator = assertion.get("operator")
     expected_declared = assertion.get("expected_declared")
-    if not isinstance(pointer, str) or not (pointer == "" or pointer.startswith("/")):
+    # The same well-formedness test the manifest loader applies, so a plan and
+    # the manifest it was generated from can never disagree about a pointer.
+    if not isinstance(pointer, str) or not is_well_formed(pointer):
         raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
-    for segment in pointer.removeprefix("/").split("/") if pointer else ():
-        index = 0
-        while index < len(segment):
-            if segment[index] != "~":
-                index += 1
-                continue
-            if index + 1 >= len(segment) or segment[index + 1] not in {"0", "1"}:
-                raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
-            index += 2
     if not isinstance(operator, str) or operator not in _OPERATORS:
         raise EvidencePlanError(f"{context}.assertion.operator is unsupported")
     if not isinstance(expected_declared, bool) or expected_declared is (operator == "exists"):

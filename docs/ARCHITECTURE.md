@@ -44,6 +44,13 @@ human-approved manifest                                   │
 - `manifest.py` parses a closed TOML shape, validates type/classification
   compatibility, re-hashes the approved source, normalizes the manifest, and
   issues its digest.
+- `pointer.py` is the single RFC 6901 seam. Manifest loading, plan
+  validation, and evaluation share one definition of a well-formed pointer,
+  so a malformed one is refused as an authoring defect at load time instead
+  of reaching the evaluator and becoming an observed `fail`. Canonical
+  array-index form is checked at resolution, not at load: RFC 6901 makes a
+  non-canonical index an error only against an array, and the same token can
+  legally name an object member.
 - `paths.py` is the single bounded-path seam. Source/evidence paths must be
   portable lexical relative paths beneath a caller-declared root; regular-file
   descriptors are opened nonblocking and final components are not followed.

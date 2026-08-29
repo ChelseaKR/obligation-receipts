@@ -1,15 +1,24 @@
 import json
+import os
 from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
 from obligation_receipts.canonical import canonical_json_bytes, sha256_bytes
-from obligation_receipts.evaluator import evaluate_manifest
+from obligation_receipts.evaluator import _overall_status, evaluate_manifest
 from obligation_receipts.manifest import load_manifest
-from obligation_receipts.models import JsonValue
+from obligation_receipts.models import (
+    Classification,
+    Criticality,
+    JsonValue,
+    ObligationResult,
+    OverallStatus,
+    ResultStatus,
+)
 from obligation_receipts.receipt import (
     ReceiptError,
+    _expected_overall_status,
     build_receipt,
     load_receipt,
     verify_receipt,
@@ -363,3 +372,186 @@ def test_receipt_replace_failure_preserves_destination_and_cleans_temp(
         write_receipt(destination, _fresh_receipt(example_manifest))
     assert destination.read_text(encoding="utf-8") == "existing"
     assert sorted(tmp_path.iterdir()) == [destination]
+
+
+def _built(example_manifest: Path) -> dict[str, JsonValue]:
+    return build_receipt(
+        evaluate_manifest(load_manifest(example_manifest), example_manifest.parent / "evidence"),
+        generated_at="2026-01-01T00:00:00+00:00",
+    )
+
+
+def _obligations(receipt: dict[str, JsonValue]) -> list[JsonValue]:
+    payload = receipt["payload"]
+    assert isinstance(payload, dict)
+    obligations = payload["obligations"]
+    assert isinstance(obligations, list)
+    return obligations
+
+
+def _rehashed(receipt: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    receipt["payload_sha256"] = sha256_bytes(canonical_json_bytes(receipt["payload"]))
+    return receipt
+
+
+def test_recomputed_payload_rejects_a_non_array_evidence_field(example_manifest: Path) -> None:
+    receipt = _built(example_manifest)
+    first = _obligations(receipt)[0]
+    assert isinstance(first, dict)
+    first["evidence"] = "one artifact"
+    with pytest.raises(ReceiptError, match="evidence must be an array"):
+        verify_receipt(_rehashed(receipt))
+
+
+def test_recomputed_payload_rejects_an_evidenced_obligation_with_no_evidence(
+    example_manifest: Path,
+) -> None:
+    receipt = _built(example_manifest)
+    first = _obligations(receipt)[0]
+    assert isinstance(first, dict)
+    first["evidence"] = []
+    first["status"] = "pass"
+    with pytest.raises(ReceiptError, match="evidence must not be empty"):
+        verify_receipt(_rehashed(receipt))
+
+
+def test_recomputed_payload_rejects_an_unverifiable_obligation_carrying_evidence(
+    example_manifest: Path,
+) -> None:
+    """The unverifiable obligation is the last one in the synthetic example."""
+    receipt = _built(example_manifest)
+    last = _obligations(receipt)[-1]
+    assert isinstance(last, dict)
+    first = _obligations(receipt)[0]
+    assert isinstance(first, dict)
+    evidence = first["evidence"]
+    assert isinstance(evidence, list)
+    last["evidence"] = deepcopy(evidence)
+    with pytest.raises(ReceiptError, match="inconsistent unverifiable"):
+        verify_receipt(_rehashed(receipt))
+
+
+def test_recomputed_payload_rejects_an_obligation_status_its_evidence_does_not_support(
+    example_manifest: Path,
+) -> None:
+    receipt = _built(example_manifest)
+    first = _obligations(receipt)[0]
+    assert isinstance(first, dict)
+    evidence = first["evidence"]
+    assert isinstance(evidence, list)
+    item = evidence[0]
+    assert isinstance(item, dict)
+    item["status"] = "fail"
+    with pytest.raises(ReceiptError, match="status does not match its evidence"):
+        verify_receipt(_rehashed(receipt))
+
+
+def test_recomputed_payload_rejects_an_empty_obligation_array(example_manifest: Path) -> None:
+    receipt = _built(example_manifest)
+    payload = receipt["payload"]
+    assert isinstance(payload, dict)
+    payload["obligations"] = []
+    with pytest.raises(ReceiptError, match="obligations must be a non-empty array"):
+        verify_receipt(_rehashed(receipt))
+
+
+def test_recomputed_payload_rejects_evidence_ids_reused_across_obligations(
+    example_manifest: Path,
+) -> None:
+    """Evidence ids are unique manifest-wide, which is what binds an attestation."""
+    receipt = _built(example_manifest)
+    obligations = _obligations(receipt)
+    first, second = obligations[0], obligations[1]
+    assert isinstance(first, dict) and isinstance(second, dict)
+    first_evidence = first["evidence"]
+    second_evidence = second["evidence"]
+    assert isinstance(first_evidence, list) and isinstance(second_evidence, list)
+    borrowed = first_evidence[0]
+    reused = second_evidence[0]
+    assert isinstance(borrowed, dict) and isinstance(reused, dict)
+    reused["id"] = borrowed["id"]
+    with pytest.raises(ReceiptError, match="evidence ids must be unique"):
+        verify_receipt(_rehashed(receipt))
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is unavailable")
+def test_load_receipt_rejects_a_receipt_that_is_not_a_regular_file(tmp_path: Path) -> None:
+    fifo = tmp_path / "receipt.json"
+    os.mkfifo(fifo)
+    with pytest.raises(ReceiptError, match="cannot be read safely"):
+        load_receipt(fifo)
+
+
+def test_receipt_evidence_status_must_suit_its_kind(example_manifest: Path) -> None:
+    """`review_required` is an attestation state; an automated assertion cannot hold it."""
+    receipt = _built(example_manifest)
+    first = _obligations(receipt)[0]
+    assert isinstance(first, dict)
+    evidence = first["evidence"]
+    assert isinstance(evidence, list)
+    item = evidence[0]
+    assert isinstance(item, dict)
+    item["status"] = "review_required"
+    first["status"] = "review_required"
+    with pytest.raises(ReceiptError, match="incompatible with its evidence kind"):
+        verify_receipt(_rehashed(receipt))
+
+
+@pytest.mark.parametrize(
+    ("results", "expected"),
+    [
+        (
+            [(Criticality.MUST, ResultStatus.PASS), (Criticality.SHOULD, ResultStatus.PASS)],
+            OverallStatus.ACCEPTED,
+        ),
+        (
+            [(Criticality.MUST, ResultStatus.PASS), (Criticality.SHOULD, ResultStatus.FAIL)],
+            OverallStatus.ACCEPTED_WITH_FINDINGS,
+        ),
+        ([(Criticality.MUST, ResultStatus.FAIL)], OverallStatus.REJECTED),
+        ([(Criticality.MUST, ResultStatus.MISSING)], OverallStatus.INCOMPLETE),
+        ([(Criticality.MUST, ResultStatus.REVIEW_REQUIRED)], OverallStatus.INCOMPLETE),
+        ([(Criticality.MUST, ResultStatus.UNVERIFIABLE)], OverallStatus.INCOMPLETE),
+    ],
+)
+def test_receipt_status_algebra_matches_the_documented_table(
+    results: list[tuple[Criticality, ResultStatus]], expected: OverallStatus
+) -> None:
+    """The receipt verifier re-derives overall status; it must agree with the evaluator.
+
+    Exercised directly because the synthetic example deliberately contains an
+    unverifiable obligation and so can only ever produce one of these arms.
+    """
+    assert _expected_overall_status(results) is expected
+
+
+def test_receipt_and_evaluator_status_algebras_cannot_drift_apart() -> None:
+    """Two implementations of the same rule must agree on every input.
+
+    `evaluator._overall_status` decides the status a receipt is issued with;
+    `receipt._expected_overall_status` re-derives it during verification, and
+    rejects the receipt when the two disagree. If they ever drift, verification
+    starts rejecting honest receipts, or accepting dishonest ones, with nothing
+    else in the suite comparing them. Every criticality/status pair, and every
+    ordered pair of them, is checked.
+    """
+    pairs = [(criticality, status) for criticality in Criticality for status in ResultStatus]
+    cases = [[pair] for pair in pairs] + [[first, second] for first in pairs for second in pairs]
+    for case in cases:
+        evaluated = _overall_status(
+            tuple(
+                ObligationResult(
+                    obligation_id=f"o{index}",
+                    clause_ref="c",
+                    classification=Classification.AUTOMATED,
+                    criticality=criticality,
+                    status=status,
+                    evidence=(),
+                )
+                for index, (criticality, status) in enumerate(case)
+            )
+        )
+        assert _expected_overall_status(case) is evaluated, (
+            f"status algebras disagree for {case}: "
+            f"receipt says {_expected_overall_status(case)}, evaluator says {evaluated}"
+        )

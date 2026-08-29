@@ -6,6 +6,11 @@ All notable changes will be documented here.
 
 ### Added
 
+- `pointer.py`, one RFC 6901 definition shared by manifest loading,
+  evidence-plan validation, and evaluation.
+- `waivers.yml`, recording the one CICD-13 element this repository cannot
+  implement, with an owner and a mandatory expiry, and a merge-blocking test
+  that fails once that expiry passes.
 - Strict source-bound obligation manifest.
 - Automated JSON assertions, manual review attestations, external attestations,
   and explicit unverifiable obligations.
@@ -28,6 +33,11 @@ All notable changes will be documented here.
 
 ### Changed
 
+- Bind the shipped rater workbook template to the frozen two-rater protocol it
+  is filled in against, in both directions, so the discovery experiment cannot
+  reach its raters with columns `research-metrics` will reject.
+- Record hosted CI and the `protect-main` ruleset as shipped in
+  `docs/ROADMAP.md` rather than as M1 items gated on discovery thresholds.
 - Make the M0 internationalization exemption mechanically auditable with its
   exact scope, re-entry seam, owner, and review date.
 - Replace tag-triggered ambient release-candidate builds with explicit
@@ -90,6 +100,39 @@ All notable changes will be documented here.
 
 ### Fixed
 
+- Report a malformed manifest JSON pointer as the input error it is. A pointer
+  with a dangling or invalid `~` escape used to load cleanly, then become a
+  deterministic `fail` and an overall `rejected`: exit code 1 and a complete,
+  checksum-verified, replayable receipt claiming an observed failure, on
+  evidence that in fact satisfied the intended assertion. The same manifest was
+  simultaneously refused by `evidence-plan` as invalid input, so one manifest
+  produced two incompatible verdicts. Well-formedness is now checked once, at
+  manifest load, where all three commands share it. Canonical array-index form
+  is deliberately not part of that check: RFC 6901 makes a non-canonical index
+  an error only when evaluated against an array, and the same token can legally
+  name an object member, so rejecting it at load would refuse manifests that
+  real evidence can satisfy (#26).
+- Make the wheel content gate able to report the omission it exists to catch.
+  Its required-member list was written by hand and had stopped covering
+  `exit_codes.py`, so a wheel missing that runtime module passed and printed
+  "verified wheel contents", while `docs/ROADMAP.md` claimed every runtime
+  module was checked. The requirement set is now derived from the source
+  package, and refuses to derive a vacuously satisfiable set from a missing or
+  partial source tree.
+- Widen the supply-chain workflow gate to `.github/workflows/*.yaml` as well as
+  `*.yml`. An unpinned action in a `.yaml` workflow passed the digest-pin
+  assertion because the file was never read. The gate now also asserts that its
+  own file discovery covers every file in the directory.
+- Make the README's Standards Conformance table readable by the portfolio
+  conformance checker. Its `| Standard | M0 status |` header did not match the
+  checker's rule, so the table was skipped entirely and DOC-11, DOC-12, and
+  DOC-13 were unevaluated: every row could have been blank with no change in
+  the reported result. The header is now `| Standard | State |`, all fifteen
+  canonical standards are declared, and a test in this repository enforces the
+  same rules the checker applies (#14).
+- Remove `_compare`'s own `exists` branch. It was unreachable through its only
+  caller and disagreed with the reachable path, which correctly treats a member
+  whose value is JSON `null` as existing (#24).
 - Restore the weekly `Dependabot Updates` job to green. The `github-actions`
   updater failed on 2026-07-24, 07-31, 08-07, 08-14 and 08-21 because
   `release.yml` pins a reusable workflow in the private `portfolio-standards`
