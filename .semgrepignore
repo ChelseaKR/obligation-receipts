@@ -1,0 +1,14 @@
+# Semgrep's built-in ignore list drops `tests/` wholesale. That silently made
+# `semgrep scan --config p/python src tests` in .github/workflows/ci.yml scan
+# `src` only, while the workflow named `tests` as a target: a gate whose stated
+# scope was wider than its real one. Declaring the scope here makes the two
+# agree. Defining this file replaces the built-in list entirely, so the
+# exclusions that still matter are restated.
+:include .gitignore
+
+.git/
+.venv/
+dist/
+build/
+node_modules/
+__pycache__/

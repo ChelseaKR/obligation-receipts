@@ -136,17 +136,40 @@ evidence content, evaluator detail text, and all aggregate dispositions. It is
 unsigned and fixes `obligation_evaluation_complete` to `false`, even when the
 selected evidence passes.
 
-Exit codes preserve the selected evidence state:
-
-| Code | State |
-|---:|---|
-| 0 | `pass` |
-| 1 | observed `fail` |
-| 2 | manifest, lookup, path, or other input error; no result document |
-| 3 | automated evidence `missing` or malformed |
-| 4 | attestation `review_required`, including missing, malformed, or unbound |
-
 See the [single-evidence check format](docs/SINGLE-EVIDENCE-CHECK.md).
+
+## Exit codes
+
+Every command draws from one band, so an automated acceptance pipeline can tell
+an evaluated negative outcome apart from a tool or input error:
+
+| Code | Meaning |
+|---:|---|
+| 0 | every `must` obligation passed |
+| 1 | evidence was read and did not pass; a result document exists |
+| 2 | manifest, lookup, path, argument, or document input error; **no result document** |
+| 3 | required evidence was absent or unusable, so nothing was observed |
+| 4 | an attestation is unbound, malformed, or awaiting review |
+
+Code 2 is reserved: it always means no result document was produced, and no
+evaluated state maps onto it. A `rejected` evaluation and an unreadable manifest
+are different facts about a contract, and a caller must never have to guess
+which one it received.
+
+| Command | 0 | 1 | 3 | 4 |
+|---|---|---|---|---|
+| `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
+| `verify` | verified | payload digest or replay mismatch | — | — |
+| `check-evidence` | `pass` | observed `fail` | `missing` or malformed | `review_required` |
+| `validate`, `evidence-plan`, `verify-evidence-plan`, `research-metrics` | success | — | — | — |
+
+`accepted_with_findings` exits 0 because every `must` obligation passed and only
+a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
+missing evidence, awaiting review, and unverifiable into one state and cannot
+honestly choose between them; `check-evidence` reports the per-item code.
+
+A `verify` failure is code 1, not 2: a receipt that does not reproduce is an
+integrity finding about that receipt, not a failure to read it.
 
 `verify receipt.json` checks the receipt's non-circular payload checksum.
 Supplying the manifest and evidence root also performs a fresh replay and
@@ -188,6 +211,9 @@ The overall result is:
 - No raw evidence content in receipts; only bounded results and artifact hashes.
 - Duplicate JSON keys, non-finite numbers, invalid UTF-8, and JSON deeper than 64
   levels or larger than 100,000 nodes fail closed.
+- A manifest-authored JSON pointer that is not well formed under RFC 6901 is an
+  input error at load time, not an observed failure. All three commands share
+  one definition of well formed, so they cannot disagree about a manifest.
 - Evidence is parsed and hashed from the same bounded byte snapshot.
 - Contract-source hashing is capped at 16 MiB; manifests, JSON evidence, plans,
   and receipts are capped at 2 MiB.
@@ -215,21 +241,28 @@ See [Architecture](docs/ARCHITECTURE.md),
 
 ## Standards Conformance
 
-| Standard | M0 status |
+One row per canonical standard, in the labels and states the portfolio
+conformance checker reads. The second column is the state, not a summary: an
+under-reported row would fail this repo's own argument that a record says
+exactly what was checked and nothing more.
+
+| Standard | State |
 |---|---|
-| Quality & Metrics | Applies; ≥90% branch coverage is merge-blocking |
-| Code Quality | Applies; Python 3.12, Ruff, strict mypy, and pytest |
-| Security & Supply-Chain | Applies; bounded local evidence, zero runtime dependencies, pinned CI actions, SAST, secret and dependency scanning are committed |
-| CI/CD | Applies; committed workflows mirror local verification and demo paths; hosted execution and branch rulesets do not yet exist |
-| Release/versioning | Applies; build-only candidate workflow, no public or registry publication |
-| Accessibility | N/A — no HTML or graphical interface in M0 |
-| Observability | Tier C; service telemetry is out of scope because the CLI is offline and emits no operational logs |
-| Performance | Applies narrowly; bounded synthetic median/p95 reporting exists, with no latency threshold until a real workload is observed |
-| Internationalization | N/A — expert-authored machine contract and English-only CLI for M0 |
-| AI evaluation | N/A — no model or AI SDK |
-| Documentation | Applies |
-| Responsible-Tech Framework | Applies; see [current audit](docs/RESPONSIBLE-TECH-AUDITS.md) |
-| Incident response and data governance | Applies; synthetic/public discovery data only |
+| Responsible-Tech Framework | Applies — see the [current audit](docs/RESPONSIBLE-TECH-AUDITS.md) |
+| Code Quality | Applies — Python 3.12, Ruff, strict mypy, and pytest, all merge-blocking through `make verify` |
+| Security & Supply-Chain | Applies — bounded local evidence, zero runtime dependencies, digest-pinned CI actions, and merge-blocking SAST, secret, and dependency scans |
+| CI/CD | Applies — hosted CI on `push` and `pull_request`, carried by `ci.yml` since the first commit; the `protect-main` ruleset, active since 2026-08-07, requires a pull request and all six checks (`verify`, `package`, `dependency-scan`, `secret-scan`, `sast`, `zizmor`), having required only `verify` until the change recorded in the CHANGELOG; gap tracked in #16 for the CodeQL `language: actions` element, waived in [waivers.yml](waivers.yml) |
+| Release & Versioning | Applies — build-only release-candidate workflow with SBOM, provenance attestation, and a keyless signature over `dist/SHA256SUMS`; it deliberately holds no publication authority, so the rest of the hardened-release shape presupposes a publish step this project does not have; recorded as WVR-009 in [waivers.yml](waivers.yml) |
+| Observability | Applies — Tier C: the CLI is offline, emits no operational telemetry, and says so in [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
+| Performance | Applies — narrowly: `make benchmark` reports a bounded synthetic median and p95, with no invented latency threshold until a representative workload is observed |
+| Accessibility | N/A — no HTML, graphical, or other user-facing interface exists in M0; the only surface is an offline CLI |
+| Internationalization | N/A — expert-authored machine manifest and English-only CLI in M0, with the exemption's scope, re-entry seam, owner, and review date in [docs/I18N.md](docs/I18N.md) |
+| AI Evaluation | N/A — the shipped tool contains no model, AI SDK, or LLM call in validation, evaluation, or verification |
+| Documentation | Applies — PRD, architecture, threat model, ADRs, and per-format specifications are committed and referenced below |
+| Quality & Metrics | Applies — a 90% branch-coverage floor is merge-blocking, and the technical metrics ledger is in [docs/ROADMAP.md](docs/ROADMAP.md) |
+| AI Development Measurement | Applies — development is AI-assisted under an accountable human maintainer, as recorded under Provenance; no Track A baseline has been measured, and none is claimed |
+| Incident Response | Applies — see [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) and the private-advisory route in `SECURITY.md` |
+| Data Governance | Applies — synthetic and public discovery data only; see [docs/DATA-GOVERNANCE.md](docs/DATA-GOVERNANCE.md) |
 
 ## Provenance
 

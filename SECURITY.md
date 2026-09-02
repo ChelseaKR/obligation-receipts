@@ -4,9 +4,15 @@ Obligation Receipts is an unreleased technical alpha. Do not use it as the sole
 basis for contractual acceptance, payment, compliance, or production-security
 decisions.
 
-Report vulnerabilities privately to the repository owner. Do not include real
-contracts, credentials, personal information, or confidential evidence in a
-report.
+Report vulnerabilities privately through this repository's GitHub Security tab
+("Report a vulnerability"), which opens a private advisory visible only to the
+repository owner. Do not include real contracts, credentials, personal
+information, or confidential evidence in a report.
+
+No package build is published to any registry yet. Once one is, the only
+canonical location will be linked from this repository's own README and
+release notes; a package claiming to be Obligation Receipts anywhere else is
+not official.
 
 The M0 parser accepts only local TOML and bounded JSON. Any code path that
 executes a manifest-supplied command, fetches a manifest-supplied URL, permits an

@@ -481,3 +481,92 @@ def test_check_evidence_subprocess_exit_contract_and_path_nonleak(
     assert unknown.returncode == 2
     assert unknown.stdout == ""
     assert "exactly one declared evidence item" in unknown.stderr
+
+
+def _checked(example_manifest: Path) -> dict[str, JsonValue]:
+    return check_declared_evidence(
+        load_manifest(example_manifest),
+        "a1-axe-summary",
+        example_manifest.parent / "evidence",
+    )
+
+
+def _set_payload(document: dict[str, JsonValue], key: str, value: JsonValue) -> None:
+    _payload(document)[key] = value
+
+
+_OVERCLAIMS: list[tuple[str, str, JsonValue, str]] = [
+    ("payload schema", "schema_version", "obligation-receipts/receipt/v0.1", "unsupported"),
+    ("decision scope", "decision_scope", "full_obligation_evaluation", "overstates"),
+    ("signature claim", "document_signature_status", "signed", "cannot claim a signature"),
+    ("completion claim", "obligation_evaluation_complete", True, "cannot claim obligation"),
+    ("blank contract id", "contract_id", "", "must be a non-empty string"),
+    ("malformed digest", "manifest_sha256", "not-a-digest", "lowercase SHA-256 digest"),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [(key, value, message) for _name, key, value, message in _OVERCLAIMS],
+    ids=[name for name, _key, _value, _message in _OVERCLAIMS],
+)
+def test_rehashed_result_cannot_overstate_what_it_checked(
+    example_manifest: Path, key: str, value: JsonValue, message: str
+) -> None:
+    """Each of these guards is what stops a single-evidence check claiming more.
+
+    Re-hashed after the edit, so the digest check cannot be what rejects it:
+    every one of these has to be refused on its own terms.
+    """
+    document = _checked(example_manifest)
+    _set_payload(document, key, value)
+    _rehash(document)
+    with pytest.raises(EvidenceCheckError, match=message):
+        verify_evidence_check(document)
+
+
+def test_rehashed_result_cannot_claim_an_unverifiable_obligation(
+    example_manifest: Path,
+) -> None:
+    """An unverifiable obligation declares no evidence, so it can have no check."""
+    document = _checked(example_manifest)
+    obligation = _payload(document)["obligation"]
+    assert isinstance(obligation, dict)
+    obligation["classification"] = "unverifiable"
+    _rehash(document)
+    with pytest.raises(EvidenceCheckError, match="unverifiable obligations cannot"):
+        verify_evidence_check(document)
+
+
+def test_result_rejects_an_unsupported_enum_value(example_manifest: Path) -> None:
+    document = _checked(example_manifest)
+    obligation = _payload(document)["obligation"]
+    assert isinstance(obligation, dict)
+    obligation["criticality"] = "nice_to_have"
+    _rehash(document)
+    with pytest.raises(EvidenceCheckError, match="unsupported"):
+        verify_evidence_check(document)
+
+
+def test_result_rejects_an_unsupported_document_schema(example_manifest: Path) -> None:
+    document = _checked(example_manifest)
+    document["schema_version"] = "obligation-receipts/receipt/v0.1"
+    with pytest.raises(EvidenceCheckError, match="unsupported single evidence check document"):
+        verify_evidence_check(document)
+
+
+def test_result_rejects_a_payload_digest_that_was_not_recomputed(
+    example_manifest: Path,
+) -> None:
+    """The ordinary tampering case: edit the payload, leave the digest alone."""
+    document = _checked(example_manifest)
+    _set_payload(document, "contract_version", "9.9")
+    with pytest.raises(EvidenceCheckError, match="payload digest mismatch"):
+        verify_evidence_check(document)
+
+
+def test_result_rejects_a_non_finite_number(example_manifest: Path) -> None:
+    document = _checked(example_manifest)
+    _set_payload(document, "declared_evidence_count", float("inf"))
+    with pytest.raises(EvidenceCheckError, match="not bounded JSON"):
+        verify_evidence_check(document)

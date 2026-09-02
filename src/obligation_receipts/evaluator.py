@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import cast
 
 from obligation_receipts.canonical import (
-    MAX_JSON_NODES,
     StrictJsonError,
     loads_json_strict,
     sha256_bytes,
@@ -26,6 +25,7 @@ from obligation_receipts.models import (
     ResultStatus,
 )
 from obligation_receipts.paths import BoundedPathError, read_bounded_file
+from obligation_receipts.pointer import resolve
 
 _MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 
@@ -40,61 +40,16 @@ def _load_json_artifact(root: Path, relative_path: str) -> tuple[JsonValue, str]
     return loads_json_strict(data), digest
 
 
-def _decode_pointer_token(segment: str) -> str | None:
-    decoded: list[str] = []
-    index = 0
-    while index < len(segment):
-        character = segment[index]
-        if character != "~":
-            decoded.append(character)
-            index += 1
-            continue
-        if index + 1 >= len(segment) or segment[index + 1] not in {"0", "1"}:
-            return None
-        decoded.append("~" if segment[index + 1] == "0" else "/")
-        index += 2
-    return "".join(decoded)
-
-
-def _canonical_array_index(segment: str) -> int | None:
-    if segment == "0":
-        return 0
-    if not segment or segment[0] not in "123456789":
-        return None
-    if any(character not in "0123456789" for character in segment[1:]):
-        return None
-    if len(segment) > len(str(MAX_JSON_NODES)):
-        return None
-    return int(segment)
-
-
-def _json_pointer(document: JsonValue, pointer: str) -> tuple[bool, JsonValue | None]:
-    current: JsonValue = document
-    if pointer == "":
-        return True, current
-    if not pointer.startswith("/"):
-        return False, None
-    for token in pointer.removeprefix("/").split("/"):
-        key = _decode_pointer_token(token)
-        if key is None:
-            return False, None
-        if isinstance(current, dict):
-            if key not in current:
-                return False, None
-            current = current[key]
-        elif isinstance(current, list):
-            index = _canonical_array_index(key)
-            if index is None or index >= len(current):
-                return False, None
-            current = current[index]
-        else:
-            return False, None
-    return True, current
-
-
 def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None) -> bool:
-    if operator == "exists":
-        return actual is not None
+    """Compare a resolved value. `exists` never reaches here.
+
+    `_evaluate_assertion` answers `exists` from the pointer's found flag, one
+    level up. This function once carried its own `exists` branch that answered
+    `actual is not None`, which was unreachable through that only caller and
+    disagreed with it: a member whose value is JSON `null` exists. It was
+    removed rather than tested, because keeping two definitions of `exists` and
+    exercising the unreachable one would have preserved the disagreement.
+    """
     if isinstance(actual, bool) or isinstance(expected, bool):
         equal = isinstance(actual, bool) and isinstance(expected, bool) and actual is expected
         return equal if operator == "eq" else not equal if operator == "ne" else False
@@ -148,7 +103,7 @@ def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResu
             artifact_sha256=artifact_sha256,
             detail="validated assertion is missing its pointer or operator",
         )
-    found, actual = _json_pointer(document, spec.pointer)
+    found, actual = resolve(document, spec.pointer)
     passed = (
         found
         if spec.operator == "exists"

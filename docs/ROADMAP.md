@@ -18,6 +18,18 @@
 - [x] Bounded two-rater discovery metrics utility
 - [x] Typed-wheel content gate
 - [x] Redacted-by-default, manifest-bound evidence collection plan
+- [x] Hosted CI on push and pull request. `.github/workflows/ci.yml` has
+      carried both triggers since the repository's first commit; no date is
+      given here because the triggers are checkable against the workflow and a
+      typed date is not.
+- [x] `protect-main` requiring a pull request and all six checks. The ruleset
+      has been active since 2026-08-07, but it required only `verify` until the
+      change recorded in the CHANGELOG under "Require every CI check in the
+      `protect-main` ruleset"; before that the other five ran and reported
+      without being able to block. zizmor's ability to block was proved on
+      2026-08-27.
+- [x] One RFC 6901 pointer definition shared by load, plan, and evaluation,
+      so an authoring defect is an input error rather than an observed fail
 
 ## Next: discovery, not features
 
@@ -37,7 +49,8 @@
 - One adapter family selected from observed workflow.
 - Static accessible trace report.
 - Amendment diff and invalidation rules.
-- Hosted CI and signed release pipeline.
+- Signed release pipeline with actual publication authority. Hosted CI is no
+  longer listed here: it shipped with the first commit, ahead of the thresholds.
 
 ## Later
 
@@ -72,7 +85,7 @@ Stop or reframe if:
 | Artifact bound | ≤2 MiB per evidence/receipt JSON | code/tests |
 | Structure bound | ≤64 JSON levels and ≤100,000 nodes | code/tests |
 | Snapshot binding | parsed evidence bytes equal hashed bytes | code/tests |
-| Package typing | wheel contains `py.typed` and all runtime modules | `make package-check` |
+| Package typing | wheel contains `py.typed` and every runtime module, derived from the source tree rather than a hand-listed baseline | `make package-check` |
 | Performance | reproducible local median/p95 report; no invented threshold | `make benchmark` |
 | Planning privacy | local paths/locators/reasons require explicit opt-in | code/tests |
 | Planning currentness | checksum self-check separated from exact manifest regeneration | code/tests |

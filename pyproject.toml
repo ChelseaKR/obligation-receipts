@@ -70,6 +70,11 @@ addopts = """
 [tool.coverage.run]
 source = ["obligation_receipts"]
 branch = true
+# Required for subprocess measurement, not for parallel test execution: a child
+# started by coverage's `.pth` hook writes to the configured data file, and
+# without a per-process suffix it would overwrite the parent's. See
+# `tests/test_cli.py::_measured_child_env`.
+parallel = true
 
 [tool.coverage.report]
 fail_under = 90

@@ -72,6 +72,11 @@ evidence items.
 | 3 | selected automated evidence is missing/unavailable |
 | 4 | selected attestation requires review |
 
+These are the shared CLI codes, not a table local to this command. Every command
+draws from the same band; see the README's exit-code section for the whole
+contract and `obligation_receipts.exit_codes` for the single mapping both this
+command and `evaluate` are derived from.
+
 ## Operational security
 
 The caller must provide a minimally scoped evidence root that is not writable

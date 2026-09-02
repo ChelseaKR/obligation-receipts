@@ -54,11 +54,23 @@ jobs:
           make verify
           make demo
           make package-check
-          sha256sum dist/* > dist/SHA256SUMS
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/obligation-receipts-${{ needs.authorize.outputs.release-tag }}.cdx.json
+          upload-artifact: false
+      - name: Record candidate checksums
+        run: sha256sum dist/* > dist/SHA256SUMS
       - name: Attest exact candidate artifacts
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign candidate checksums (keyless)
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
       - name: Upload immutable candidate inputs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
