@@ -1,14 +1,39 @@
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import cast
 
+import coverage
 import pytest
 
 import obligation_receipts.cli as cli_module
 from obligation_receipts.cli import main
+
+_ROOT = Path(__file__).parents[1]
+
+
+def _measured_child_env() -> dict[str, str]:
+    """Environment for a `python -m` child whose lines still reach the report.
+
+    The `if __name__ == "__main__":` guard can only run in a child process, and
+    a child records nothing by default: coverage's site-wide `.pth` hook starts
+    a recorder only when `COVERAGE_PROCESS_START` names a config file. Without
+    it the guard is genuinely executed by this suite and reported as uncovered
+    -- a measurement that understates what ran, which is the one direction this
+    project's own argument forbids. (#23)
+
+    `COVERAGE_FILE` is made absolute because one caller below runs with
+    `cwd=tmp_path`; a relative data file would be written into that temporary
+    directory and combined by nothing. `[tool.coverage.run] parallel` keeps the
+    child's file from colliding with the parent's.
+    """
+    env = dict(os.environ)
+    env["COVERAGE_PROCESS_START"] = str(_ROOT / "pyproject.toml")
+    env["COVERAGE_FILE"] = str(_ROOT / ".coverage")
+    return env
 
 
 def _last_stdout_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
@@ -524,6 +549,7 @@ def test_module_entry_point_runs_as_main(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         check=False,
+        env=_measured_child_env(),
     )
     assert completed.returncode == 0
     assert "obligation-receipts" in completed.stdout
@@ -541,9 +567,67 @@ def test_module_entry_point_propagates_the_input_error_exit_code(tmp_path: Path)
         text=True,
         check=False,
         cwd=tmp_path,
+        env=_measured_child_env(),
     )
     assert completed.returncode == 2
     assert completed.stdout == ""
+
+
+def test_the_module_entry_point_child_is_measured_and_not_merely_run(tmp_path: Path) -> None:
+    """The measurement of the guard must itself be able to fail.
+
+    The two tests above execute the `if __name__ == "__main__":` guard in a
+    child process. Whether the coverage report *sees* that is a separate fact,
+    carried entirely by `COVERAGE_PROCESS_START` and coverage's site-wide `.pth`
+    hook. If either stops working the guard would still be executed, the suite
+    would still be green, and the 90% floor would still be cleared -- the number
+    would just quietly fall back to reporting a line as unrun that this suite
+    runs on every invocation. Nothing else in the repository would notice.
+
+    So assert the mechanism directly, on a data file of this test's own, rather
+    than trusting the aggregate percentage: the child must record `cli.py`, and
+    the guard's own two lines must be among the lines it recorded.
+    """
+    guard = 'if __name__ == "__main__":\n    raise SystemExit(main())\n'
+    cli_path = _ROOT / "src" / "obligation_receipts" / "cli.py"
+    source = cli_path.read_text(encoding="utf-8")
+    assert source.endswith(guard), "the guard is not the tail of cli.py; the offsets below lie"
+    guard_first_line = len(source.splitlines()) - 1
+
+    env = _measured_child_env()
+    env["COVERAGE_FILE"] = str(tmp_path / "child.coverage")
+    completed = subprocess.run(
+        [sys.executable, "-m", "obligation_receipts.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert completed.returncode == 0
+
+    written = sorted(tmp_path.glob("child.coverage*"))
+    assert written, (
+        "the child process wrote no coverage data. COVERAGE_PROCESS_START no longer starts a "
+        "recorder in a subprocess, so the module entry point is executed but unmeasured."
+    )
+
+    recorded: set[int] = set()
+    measured: set[str] = set()
+    for data_file in written:
+        data = coverage.CoverageData(basename=str(data_file))
+        data.read()
+        for name in data.measured_files():
+            measured.add(name)
+            if Path(name).resolve() == cli_path.resolve():
+                recorded.update(data.lines(name) or [])
+    assert recorded, (
+        f"the child measured {sorted(measured)} but recorded no lines of {cli_path}; the "
+        "entry point ran outside coverage's view"
+    )
+    assert {guard_first_line, guard_first_line + 1} <= recorded, (
+        f"the child recorded {cli_path.name} but not its `__main__` guard at lines "
+        f"{guard_first_line}-{guard_first_line + 1}; recorded tail was {sorted(recorded)[-5:]}"
+    )
 
 
 def test_packaged_console_script_is_declared_for_the_same_entry_point() -> None:

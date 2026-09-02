@@ -100,6 +100,18 @@ All notable changes will be documented here.
 
 ### Fixed
 
+- Measure the CLI entry point the suite already runs. `tests/test_cli.py` has
+  executed `cli.py`'s `if __name__ == "__main__":` guard in a child process
+  since #23, but a child records no coverage unless `COVERAGE_PROCESS_START` is
+  set in its environment, so the report kept naming the guard as an unrun line.
+  Two lines this suite runs on every invocation were published as two lines it
+  does not. The subprocess environment now starts a recorder, `[tool.coverage.run]
+  parallel` keeps the child's data file from overwriting the parent's, and
+  `src/` reports 100% statement and branch coverage rather than 99.89%. A new
+  test asserts the mechanism directly against a data file of its own: without
+  it, breaking the plumbing would silently return the report to understating
+  what ran, and nothing — least of all the 90% floor — would fail.
+
 - Stop dating hosted CI to a day this repository has no commit for. The README
   and `docs/ROADMAP.md` both said `since 2026-08-05`; `.github/workflows/ci.yml`
   has carried `push` and `pull_request` since the repository's first commit, and
