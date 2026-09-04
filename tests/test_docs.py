@@ -559,6 +559,61 @@ def test_every_document_stating_the_coverage_floor_states_the_configured_one() -
         )
 
 
+# A tracked plan may record what held while its pass ran; it may not claim, in
+# the present tense, that it is not committed. The discriminator is tense, not
+# vocabulary: "nothing was committed while it ran" is true and stays allowed,
+# "Nothing is committed" is the false claim. Holding two literal strings caught
+# only the two spellings that happened to exist, and "Nothing is committed;
+# every change is in the working tree" walked past them.
+_UNCOMMITTED_DENIALS = (
+    # "Nothing is committed", "Nothing in this pass is committed",
+    # "no change is committed".
+    re.compile(r"\b(?:nothing|none|no\s+\w+)\b[^.;\n]{0,60}?\bis\s+(?:not\s+)?committed\b", re.I),
+    # "is not committed", "are not committed".
+    re.compile(r"\b(?:is|are)\s+not\s+committed\b", re.I),
+    # "is uncommitted", "remains uncommitted", "stays uncommitted".
+    re.compile(r"\b(?:is|are|remains?|stays?)\s+(?:still\s+)?uncommitted\b", re.I),
+    # "every change is in the working tree".
+    re.compile(
+        r"\b(?:every|all|each)\b[^.;\n]{0,40}?\b(?:is|are)\s+in\s+the\s+working[ -]tree\b", re.I
+    ),
+    # "Working-tree only." as an assertion, but not "the pass was working-tree
+    # only", which describes a past constraint rather than a present state.
+    re.compile(r"(?<!was\s)(?<!were\s)\bworking[ -]tree\s+only\b", re.I),
+)
+
+_DENIALS_THIS_GUARD_MUST_CATCH = (
+    "Working-tree only. Nothing in this pass is committed; the accountable maintainer",
+    "Nothing is committed; every change is in the working tree.",
+    "No change is committed yet.",
+    "The plan remains uncommitted.",
+    "This document is not committed.",
+)
+
+_TRUE_STATEMENTS_THIS_GUARD_MUST_ALLOW = (
+    "The pass itself was working-tree only: nothing was committed while it ran,",
+    "Nothing was committed while the pass ran; the work was merged to `main` afterwards.",
+    "No commit, no push, no pull-request write, no index or HEAD movement.",
+    "The work was merged to `main` in pull request #38, this file included.",
+)
+
+
+def test_the_uncommitted_denial_guard_rejects_the_family_and_not_the_record() -> None:
+    """The guard has to separate a false present claim from a true past one.
+
+    Both sentences contain the same words. Only one of them is a committed file
+    saying it is not committed, and a guard that cannot tell them apart either
+    misses the defect or forbids the correction.
+    """
+    for denial in _DENIALS_THIS_GUARD_MUST_CATCH:
+        assert any(pattern.search(denial) for pattern in _UNCOMMITTED_DENIALS), (
+            f"the guard does not catch {denial!r}"
+        )
+    for statement in _TRUE_STATEMENTS_THIS_GUARD_MUST_ALLOW:
+        matched = [pattern.pattern for pattern in _UNCOMMITTED_DENIALS if pattern.search(statement)]
+        assert not matched, f"the guard rejects the true statement {statement!r} via {matched}"
+
+
 def test_a_committed_plan_does_not_present_itself_as_uncommitted() -> None:
     """`Nothing in this pass is committed` was written in a committed file.
 
@@ -570,5 +625,7 @@ def test_a_committed_plan_does_not_present_itself_as_uncommitted() -> None:
     assert tracked, "docs/plans holds no plan; drop this guard or restore the file"
     for path in tracked:
         text = path.read_text(encoding="utf-8")
-        for denial in ("Nothing in this pass is committed", "Working-tree only."):
-            assert denial not in text, f"{path.name} is committed and says {denial!r}"
+        for pattern in _UNCOMMITTED_DENIALS:
+            found = pattern.search(text)
+            if found is not None:
+                raise AssertionError(f"{path.name} is committed and says {found.group(0)!r}")

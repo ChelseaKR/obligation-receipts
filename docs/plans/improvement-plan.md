@@ -95,8 +95,11 @@ a changelog, and a signed candidate build all exist here.
 
 ## Status
 
-All eight phases complete. One issue, #15, is blocked and stated as blocked.
-Nothing is committed; every change is in the working tree.
+All nine phases complete — six planned, three added mid-pass. One issue, #15,
+is blocked and stated as blocked. Nothing was committed while the pass ran; the
+work was merged to `main` afterwards, in pull request #38.
+
+The figures below are this pass's before and after, not a running total.
 
 | Metric | Before | After |
 |---|---|---|
@@ -106,9 +109,14 @@ Nothing is committed; every change is in the working tree.
 | `make verify` | exit 0 | exit 0 |
 | Portfolio conformance score | 28/30 | 29/30 |
 
-The single uncovered line is `cli.py`'s `raise SystemExit(main())`, which
-cannot execute in-process; it is covered behaviorally by a subprocess test and
-textually by an entry-point drift test.
+At the end of this pass the one uncovered line was `cli.py`'s
+`raise SystemExit(main())`. It is no longer uncovered, and the reason is worth
+recording: `tests/test_cli.py` had always executed it in a child process, but a
+child records nothing unless `COVERAGE_PROCESS_START` is set in its
+environment, so the report named as unrun two lines the suite ran on every
+invocation. With the recorder started in the subprocess environment (#41),
+`src/` measures 100% statement and branch coverage, and all thirteen modules
+report 100%.
 
 ## Running log
 
@@ -167,15 +175,19 @@ already filled in unusable workbooks.
 divergence has no tracking issue, because `gh` writes are withheld in this
 pass; WVR-009 records it, but an issue should be opened. And the portfolio's
 central `STANDARDS/waivers.yml` is a different repository, so the two entries
-here are recorded locally only; `check_waivers.py --portfolio` will pick them
-up on its next aggregate run.
+written in this pass were recorded locally only; `check_waivers.py --portfolio`
+will pick them up on its next aggregate run. WVR-008 has since been retired: it
+was granted because code scanning was unavailable on a private repository, and
+the repository is now public with code-scanning default setup reporting
+`not-configured` rather than unavailable. Only WVR-009 remains.
 
-**One judgement left to the owner.** Branch coverage is now 99.89% against a
-merge-blocking floor of 90%. The floor still fails on a real regression, so it
-is not a broken gate, but it is loose enough that a large one could slip. It is
-documented as 90% in `AGENTS.md`, the README, and `CONTRIBUTING.md`, and the
-portfolio's own `coverage_floor_value` control reads that number, so raising it
-is a standards decision rather than a cleanup, and it was left alone.
+**One judgement left to the owner.** Branch coverage measured 99.89% in this
+pass against a merge-blocking floor of 90%, and measures 100% today. The floor
+still fails on a real regression, so it is not a broken gate, but it is loose
+enough that a large one could slip. It is documented as 90% in `AGENTS.md`, the
+README, and `CONTRIBUTING.md`, and the portfolio's own `coverage_floor_value`
+control reads that number, so raising it is a standards decision rather than a
+cleanup, and it was left alone.
 
 Correction made after this pass: `CONTRIBUTING.md` carried no percentage at all
 when the sentence above was written, so the pointer named a document that did
