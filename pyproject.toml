@@ -18,14 +18,63 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "Chelsea Kelly-Reif" }]
-keywords = ["acceptance-testing", "procurement", "evidence", "provenance", "public-interest"]
+keywords = [
+  "acceptance-testing",
+  "civic-tech",
+  "deterministic",
+  "evidence",
+  "fail-closed",
+  "federal-acquisition-regulation",
+  "government-contracting",
+  "govtech",
+  "offline-first",
+  "provenance",
+  "public-procurement",
+  "receipts",
+  "replay",
+  "section-508",
+  "software-acceptance",
+  "supply-chain-security",
+]
+# Every entry is validated at build time: hatchling raises `Unknown classifier in
+# field `project.classifiers`` against the trove-classifiers list, so an invented
+# one fails `make package-check` rather than shipping.
+#
+# There is deliberately no `License :: OSI Approved :: ...` entry. PEP 639 makes
+# the `license` SPDX expression above and a license classifier mutually
+# exclusive; setuptools hard-errors on the pair, hatchling accepts it silently,
+# and the built METADATA carried both `License-Expression: Apache-2.0` and the
+# classifier. The expression is the normative form, so the classifier goes.
+#
+# `Programming Language :: Python :: 3.13` is also absent on purpose: CI tests
+# 3.12 and nothing else, and a classifier is a support claim, not an aspiration.
 classifiers = [
   "Development Status :: 3 - Alpha",
-  "License :: OSI Approved :: Apache Software License",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Intended Audience :: Legal Industry",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
   "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Software Development :: Testing :: Acceptance",
+  # The package ships `py.typed` and is checked under strict mypy. Without this
+  # classifier no consumer can discover that from the distribution metadata.
+  "Typing :: Typed",
 ]
 dependencies = []
+
+# Absent entirely before this: the built METADATA carried zero `Project-URL:`
+# lines, so a published wheel pointed nowhere -- no repository, no issue tracker,
+# no changelog. Every URL below resolves today.
+[project.urls]
+Homepage = "https://github.com/ChelseaKR/obligation-receipts"
+Repository = "https://github.com/ChelseaKR/obligation-receipts"
+Issues = "https://github.com/ChelseaKR/obligation-receipts/issues"
+Changelog = "https://github.com/ChelseaKR/obligation-receipts/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/ChelseaKR/obligation-receipts/tree/main/docs"
 
 [dependency-groups]
 dev = [
