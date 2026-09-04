@@ -6,7 +6,6 @@ import hashlib
 import json
 from io import StringIO
 from math import isfinite
-from pathlib import Path
 from typing import IO, cast
 
 from obligation_receipts.models import JsonValue
@@ -95,12 +94,3 @@ def canonical_json_bytes(value: object) -> bytes:
 def sha256_bytes(value: bytes) -> str:
     """Return a lowercase SHA-256 digest."""
     return hashlib.sha256(value).hexdigest()
-
-
-def sha256_file(path: Path) -> str:
-    """Hash a regular file without retaining its contents."""
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(64 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
