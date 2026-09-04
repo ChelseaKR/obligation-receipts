@@ -1,4 +1,5 @@
 import errno
+import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -155,6 +156,37 @@ def test_bounded_readers_refuse_a_symlink_swapped_in_after_resolution(
     with pytest.raises(OSError) as raised:
         reader(tmp_path, "artifact.json", max_bytes=1024)
     assert raised.value.errno in {errno.ELOOP, errno.EMLINK}
+
+
+def test_read_regular_file_accepts_a_file_of_exactly_the_cap(tmp_path: Path) -> None:
+    """A file of exactly the cap is inside the cap, and must be read.
+
+    Every other cap test uses `limit + 1`, so the boundary itself was never
+    exercised and both of this reader's `> max_bytes` comparisons -- the
+    `st_size` pre-check and the `len(data)` post-check -- could become `>=`
+    unnoticed. That off-by-one is not a tightened limit, it is a wrong answer:
+    a valid 2 MiB evidence artifact would be refused, the evaluator would
+    record `missing`, and a tool whose whole contract is fail-closed reporting
+    would say it did not observe evidence that is sitting there and is within
+    its own documented bound.
+    """
+    payload = b"x" * 4096
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(payload)
+    assert read_regular_file(artifact, max_bytes=4096, no_follow=True) == payload
+
+
+def test_hash_bounded_file_accepts_a_file_of_exactly_the_cap(tmp_path: Path) -> None:
+    """The hashing reader carries the same boundary, and its own streaming counter.
+
+    See `test_read_regular_file_accepts_a_file_of_exactly_the_cap`: this reader
+    repeats the `st_size` comparison and adds `total > max_bytes` over the
+    stream, so it can drift to `>=` in two more places.
+    """
+    payload = b"x" * 4096
+    (tmp_path / "artifact.json").write_bytes(payload)
+    _, digest = hash_bounded_file(tmp_path, "artifact.json", max_bytes=4096)
+    assert digest == hashlib.sha256(payload).hexdigest()
 
 
 def _stale_size_fstat(size: int) -> Callable[[int], os.stat_result]:
