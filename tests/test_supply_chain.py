@@ -87,7 +87,7 @@ def test_no_workflow_can_publish_a_release() -> None:
     Widened in the other direction too. The old list named four publish commands;
     the set of ways to upload a distribution is not four, and is not closed. So the
     ban is stated as capability as well as spelling: `gh api` is not on the command
-    list precisely because ci.yml's pin-identity job uses it under `contents: read`,
+    list precisely because ci.yml's pin-identity step uses it under `contents: read`,
     and it is the permission blocklist, not a spelling, that stops the same binary
     from being pointed at the releases endpoint.
     """
@@ -290,3 +290,85 @@ def test_sast_actually_scans_every_directory_it_claims_to_scan() -> None:
     ]
     excluded = [target for target in _semgrep_targets(root) if target.rstrip("/") in patterns]
     assert not excluded, f"ci.yml scans {excluded}, but .semgrepignore excludes them"
+
+
+#: The identity question, as the workflow asks it. Matching a pinned SHA against the named
+#: repository's own tag refs is the part that cannot be satisfied by a fork, because forks
+#: share a repository's git objects but not its refs.
+_PIN_RESOLUTION = "git/matching-refs/tags/"
+_UNREADABLE_PINS = re.compile(r"^\s*UNREADABLE_PINS:\s*(?P<repositories>\S.*?)\s*$", re.M)
+
+#: The only pinned repository the pin-identity step may skip. Private, owned by another
+#: account, and unreadable by this workflow's repo-scoped GITHUB_TOKEN, so the API 404s on
+#: a genuine pin; it is verified by hand at every bump instead. Each exemption is a pin
+#: nothing automated checks, so the set is pinned down here rather than left to whatever
+#: the workflow happens to say: adding one means editing this line, in a diff a reviewer
+#: reads, instead of appending a word to an env var in ci.yml.
+_EXEMPT_FROM_PIN_IDENTITY = frozenset({"ChelseaKR/portfolio-standards"})
+
+
+def _pinned_repositories(root: Path) -> set[str]:
+    """Every `owner/repo` whose commits this repository pins.
+
+    A reusable-workflow reference carries a path after the repository name, so only the
+    first two segments identify the repository the pin has to resolve against.
+    """
+    repositories = set()
+    for workflow in workflow_files(root):
+        for line in workflow.read_text(encoding="utf-8").splitlines():
+            match = _PINNED_USES.match(line)
+            if match is not None:
+                repositories.add("/".join(match.group(1).split("/")[:2]))
+    return repositories
+
+
+def test_every_pinned_sha_is_resolved_against_the_repository_it_names() -> None:
+    """A 40-hex pin is a format, not an identity.
+
+    `test_ci_actions_are_digest_pinned` matches `@([0-9a-f]{40})` -- any 40 hex
+    characters -- and zizmor's `impostor-commit`, the rule that would ask whether
+    those characters name a commit in the repository the pin names, is disabled
+    repo-wide in `.github/zizmor.yml`. So replacing `actions/checkout@<real sha>`
+    with a SHA from an attacker's fork of checkout kept every gate green.
+
+    Something has to ask. This asserts that ci.yml still does, and holds its
+    exemption list to the one repository the token genuinely cannot read. Without
+    that, the step's `UNREADABLE_PINS` env var would be a way to switch the gate
+    off one action at a time, in a workflow edit, while the job kept reporting
+    success -- appending `actions/checkout` to it is a one-word diff.
+    """
+    root = Path(__file__).parents[1]
+    resolving = [
+        workflow.name
+        for workflow in workflow_files(root)
+        if _PIN_RESOLUTION in workflow.read_text(encoding="utf-8")
+    ]
+    assert len(resolving) == 1, (
+        "expected exactly one workflow to resolve pinned SHAs against the repository "
+        f"they name, found {resolving}. Nothing else checks pin identity: the digest "
+        "gate checks format and zizmor's impostor-commit rule is disabled repo-wide."
+    )
+
+    declarations = [
+        match
+        for workflow in workflow_files(root)
+        for match in _UNREADABLE_PINS.findall(workflow.read_text(encoding="utf-8"))
+    ]
+    assert len(declarations) == 1, f"expected one UNREADABLE_PINS declaration, got {declarations}"
+    skipped = set(declarations[0].split())
+    pinned = _pinned_repositories(root)
+    assert pinned, "no pinned repositories found; the reader is broken, not the workflows"
+    assert skipped == set(_EXEMPT_FROM_PIN_IDENTITY), (
+        f"the pin-identity step skips {sorted(skipped)}, but only "
+        f"{sorted(_EXEMPT_FROM_PIN_IDENTITY)} is exempt. An exemption is a pin nothing "
+        "automated verifies; adding one is a decision to record here, not a word to append "
+        "to an env var."
+    )
+    assert skipped <= pinned, (
+        f"{sorted(skipped - pinned)} is exempt from pin identity but nothing pins it. "
+        "A stale exemption exempts nothing and only obscures the list."
+    )
+    assert pinned - skipped, (
+        "every pinned repository is exempt, so the pin-identity step resolves nothing "
+        "while still reporting success."
+    )

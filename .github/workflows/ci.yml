@@ -126,3 +126,87 @@ jobs:
           # still fails the job on real findings.
           advanced-security: false
           annotations: true
+
+      # The audit zizmor is configured not to run, run here instead. It
+      # lives in this job rather than a job of its own because the two ask
+      # the same question of the same lines, and because the branch ruleset
+      # names required checks by job id.
+      #
+      # A 40-hex pin proves format, not identity. Nothing in this repository asked
+      # whether a pinned SHA belongs to the repository the pin names: the digest
+      # gate in tests/test_supply_chain.py matches `@([0-9a-f]{40})`, and zizmor's
+      # `impostor-commit` audit -- the rule that would ask -- is disabled repo-wide
+      # in .github/zizmor.yml for a real access reason that nonetheless leaves all
+      # 9 distinct pinned refs unasked. Swapping a real SHA for one out of an
+      # attacker's fork of the same action kept CI green.
+      #
+      # The obvious check does not close it. Forks share the upstream repository's
+      # git object store, so `repos/<owner>/<repo>/commits/<sha>` resolves a commit
+      # that exists only in a fork -- measured against actions/checkout, which
+      # returned 7977a57c26cae21dcd2dd2484e8ca8a53280752d, the head of a
+      # third-party fork, with HTTP 200. A gate built on that call would pass the
+      # exact substitution it exists to catch.
+      #
+      # Refs are not shared. So the question asked here is the one that
+      # distinguishes the two: is the pinned SHA a tag *in* the repository the pin
+      # names? Every pin in this repository is a release tag, which is what
+      # Dependabot writes, so a pin that is not a tag is a pin to explain.
+      - name: Resolve every pinned SHA against the repository it names
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ChelseaKR/portfolio-standards is private and owned by another
+          # account, so this workflow's repo-scoped GITHUB_TOKEN cannot read
+          # it: the API 404s on a genuine pin. It is skipped rather than
+          # failed, and verified by hand at every bump -- the same access
+          # limit that forces zizmor's impostor-commit audit off entirely.
+          # tests/test_supply_chain.py asserts this list names only
+          # repositories that are actually pinned, so it cannot grow into a
+          # way to exempt a public action.
+          UNREADABLE_PINS: ChelseaKR/portfolio-standards
+        run: |
+          set -euo pipefail
+          # `uses[:]` rather than the plain key: this line is inside a file the
+          # digest-pin gate reads as text, and a plain one would look to it
+          # like an unpinned action reference.
+          pins="$(grep -rhoE '^[[:space:]]*(-[[:space:]]+)?uses[:][[:space:]]*[^@[:space:]]+@[0-9a-f]{40}' .github/workflows \
+            | sed -E 's/.*[[:space:]]([^@[:space:]]+)@([0-9a-f]{40})$/\1 \2/' \
+            | awk '{ split($1, part, "/"); print part[1] "/" part[2], $2 }' \
+            | sort -u)"
+          if [ -z "${pins}" ]; then
+            echo "::error::no pinned action references found; this gate would be vacuous"
+            exit 1
+          fi
+          echo "resolving $(printf '%s\n' "${pins}" | wc -l) distinct pins"
+          status=0
+          while read -r repo sha; do
+            case " ${UNREADABLE_PINS} " in
+              *" ${repo} "*)
+                echo "skip ${repo}@${sha}: private to another account, this token cannot read it"
+                continue
+                ;;
+            esac
+            if ! refs="$(gh api --paginate "repos/${repo}/git/matching-refs/tags/" --jq '.[] | [.object.sha, .ref] | @tsv')"; then
+              echo "::error::cannot list the tags of ${repo}; failing closed rather than passing an unverified pin"
+              status=1
+              continue
+            fi
+            tag="$(printf '%s\n' "${refs}" | awk -v want="${sha}" '$1 == want { printf "%s%s", (seen++ ? "," : ""), $2 } END { print "" }')"
+            if [ -z "${tag}" ]; then
+              # An annotated tag names a tag object, not the commit it wraps.
+              if ! deref="$(gh api --paginate "repos/${repo}/tags" --jq '.[] | [.commit.sha, .name] | @tsv')"; then
+                echo "::error::cannot dereference the tags of ${repo}; failing closed"
+                status=1
+                continue
+              fi
+              tag="$(printf '%s\n' "${deref}" | awk -v want="${sha}" '$1 == want { printf "%s%s", (seen++ ? "," : ""), $2 } END { print "" }')"
+            fi
+            if [ -z "${tag}" ]; then
+              echo "::error::${repo}@${sha} is not a tag in ${repo}. A 40-hex SHA that resolves through the shared fork object store is not evidence the commit belongs to ${repo}."
+              status=1
+              continue
+            fi
+            echo "ok ${repo}@${sha} -> ${tag}"
+          done <<PINS
+          ${pins}
+          PINS
+          exit "${status}"
