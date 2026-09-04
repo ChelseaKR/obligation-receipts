@@ -372,3 +372,95 @@ def test_every_pinned_sha_is_resolved_against_the_repository_it_names() -> None:
         "every pinned repository is exempt, so the pin-identity step resolves nothing "
         "while still reporting success."
     )
+
+
+_JOB_HEADER = re.compile(r"^  (?P<name>[A-Za-z0-9_.-]+):\s*$")
+#: Anchored at four spaces so it reads the job's own key. A `timeout-minutes:` on a step
+#: is indented further, bounds that step alone, and must not satisfy a job that has none.
+_JOB_TIMEOUT = re.compile(r"^    timeout-minutes:\s*(?P<minutes>\d+)\b", re.M)
+_JOB_RUNS_ON = re.compile(r"^    runs-on:", re.M)
+
+#: Generous by an order of magnitude -- the whole suite runs in seconds and the slowest
+#: job is a couple of minutes -- and still two orders below GitHub's 6-hour default.
+_MAX_TIMEOUT_MINUTES = 30
+
+
+def _jobs(text: str) -> dict[str, list[str]]:
+    """Each job id in one workflow, mapped to the lines that define it.
+
+    Tracks the top-level `jobs:` block, because `on:` and `concurrency:` also carry
+    two-space keys and a reader that did not would report `push` as a job.
+    """
+    jobs: dict[str, list[str]] = {}
+    inside = False
+    current: str | None = None
+    for line in text.splitlines():
+        if re.match(r"^jobs:\s*$", line):
+            inside, current = True, None
+            continue
+        if line.strip() and not line.startswith((" ", "#")):
+            inside, current = False, None
+            continue
+        if not inside:
+            continue
+        header = _JOB_HEADER.match(line)
+        if header is not None:
+            current = header.group("name")
+            jobs[current] = []
+        elif current is not None:
+            jobs[current].append(line)
+    return jobs
+
+
+def _jobs_without_a_timeout(text: str) -> list[str]:
+    """Jobs that hold a runner without saying for how long.
+
+    A job that only calls a reusable workflow is exempt: GitHub rejects
+    `timeout-minutes` on one, and the called workflow bounds itself.
+    """
+    return [
+        name
+        for name, block in _jobs(text).items()
+        if _JOB_RUNS_ON.search("\n".join(block)) and not _JOB_TIMEOUT.search("\n".join(block))
+    ]
+
+
+def test_every_job_that_holds_a_runner_declares_how_long_it_may_hold_it() -> None:
+    """No `timeout-minutes` anywhere in ci.yml meant every job inherited 6 hours.
+
+    This repository is public and has forks, and `verify` runs `pytest` over a
+    pull request's code -- so how long a runner is held was a fork's decision.
+    release.yml already bounded its build; nothing bounded the six jobs that run
+    on every push and every pull request.
+    """
+    root = Path(__file__).parents[1]
+
+    # The reader must be able to fail, and must not mistake `on:`'s keys for jobs
+    # or a step's timeout for the job's.
+    synthetic = "on:\n  push:\n    branches: [main]\njobs:\n  a:\n    runs-on: ubuntu-latest\n"
+    synthetic += "    steps:\n      - run: true\n        timeout-minutes: 5\n  b:\n"
+    synthetic += "    uses: o/r/.github/workflows/w.yml@" + "0" * 40 + "\n"
+    assert set(_jobs(synthetic)) == {"a", "b"}, _jobs(synthetic)
+    assert _jobs_without_a_timeout(synthetic) == ["a"]
+    bounded = synthetic.replace("  a:\n", "  a:\n    timeout-minutes: 9\n")
+    assert _jobs_without_a_timeout(bounded) == []
+
+    for workflow in workflow_files(root):
+        text = workflow.read_text(encoding="utf-8")
+        jobs = _jobs(text)
+        assert jobs, f"{workflow.name}: no jobs parsed; the reader is broken, not the file"
+        unbounded = _jobs_without_a_timeout(text)
+        assert not unbounded, (
+            f"{workflow.name}: {unbounded} run on a runner without `timeout-minutes`, so "
+            "they inherit GitHub's 6-hour default"
+        )
+        excessive = {
+            name: int(match.group("minutes"))
+            for name, block in jobs.items()
+            if (match := _JOB_TIMEOUT.search("\n".join(block))) is not None
+            and not 1 <= int(match.group("minutes")) <= _MAX_TIMEOUT_MINUTES
+        }
+        assert not excessive, (
+            f"{workflow.name}: {excessive} exceed the {_MAX_TIMEOUT_MINUTES}-minute ceiling. "
+            "A timeout longer than any run has ever needed is a declaration, not a bound."
+        )

@@ -12,9 +12,17 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every job declares `timeout-minutes`. GitHub's default is 6 hours, and this
+# repository is public with forks: `verify` runs `pytest` over a pull request's
+# code, so a fork can decide how long a runner is held. The whole suite takes
+# seconds and the slowest job here is a couple of minutes, so these bounds are
+# generous by an order of magnitude and still cut a hung or deliberately
+# wedged job short. `tests/test_supply_chain.py` asserts every job that runs on
+# a runner declares one, and that none exceeds 30 minutes.
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,6 +48,7 @@ jobs:
 
   package:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,6 +62,7 @@ jobs:
 
   dependency-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,6 +87,7 @@ jobs:
 
   secret-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # clones the full history (fetch-depth: 0) before scanning it
     permissions:
       contents: read
       pull-requests: read # required on private repos: gitleaks-action lists the PR's commits
@@ -91,6 +102,7 @@ jobs:
 
   sast:
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # fetches the p/python ruleset from the registry first
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,6 +122,7 @@ jobs:
 
   zizmor:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
