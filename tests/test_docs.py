@@ -2,21 +2,35 @@ import re
 from datetime import date
 from pathlib import Path
 
-from obligation_receipts.exit_codes import INPUT_ERROR, evaluation_exit_code
-from obligation_receipts.models import OverallStatus
+from obligation_receipts.exit_codes import (
+    INPUT_ERROR,
+    NOT_OBSERVED,
+    evaluation_exit_code,
+    evidence_exit_code,
+)
+from obligation_receipts.manifest import load_manifest
+from obligation_receipts.models import EvidenceKind, OverallStatus, ResultStatus
+from obligation_receipts.single_check import check_declared_evidence, evidence_check_exit_code
 
 
 def _readme() -> str:
     return (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 
 
+def _documented_row_codes(command: str) -> dict[str, int]:
+    """Read one per-command exit-code row out of the README's table."""
+    opening = f"| `{command}` |"
+    rows = [line for line in _readme().splitlines() if line.startswith(opening)]
+    assert len(rows) == 1, f"expected exactly one `{command}` exit-code row, found {len(rows)}"
+    cells = [cell.strip() for cell in rows[0].strip().strip("|").split("|")][1:]
+    columns = (0, 1, 3, 4)
+    assert len(cells) == len(columns), f"the {command} row must cover every documented code"
+    return {cell: code for cell, code in zip(cells, columns, strict=True)}
+
+
 def _documented_evaluate_codes() -> dict[str, int]:
     """Read the README's per-command exit-code row for `evaluate`."""
-    row = next(line for line in _readme().splitlines() if line.startswith("| `evaluate` |"))
-    cells = [cell.strip() for cell in row.strip().strip("|").split("|")][1:]
-    columns = (0, 1, 3, 4)
-    assert len(cells) == len(columns), "the evaluate row must cover every documented code"
-    return {cell: code for cell, code in zip(cells, columns, strict=True)}
+    return _documented_row_codes("evaluate")
 
 
 def test_readme_documents_the_exit_code_the_cli_actually_returns() -> None:
@@ -27,6 +41,65 @@ def test_readme_documents_the_exit_code_the_cli_actually_returns() -> None:
             f"README places {status.value} at {placed}, "
             f"but evaluate returns {evaluation_exit_code(status)}"
         )
+
+
+def test_readme_documents_the_exit_code_check_evidence_actually_returns() -> None:
+    """`check-evidence` is the only command that reports a per-item state.
+
+    `unverifiable` is deliberately absent from the row as well as from
+    `evidence_exit_code`: it belongs to an obligation that declares no evidence,
+    so no evidence item can carry it.
+    """
+    documented = _documented_row_codes("check-evidence")
+    for status in ResultStatus:
+        placed = [code for cell, code in documented.items() if f"`{status.value}`" in cell]
+        if status is ResultStatus.UNVERIFIABLE:
+            assert placed == [], f"the check-evidence row places {status.value} at {placed}"
+            continue
+        assert placed == [evidence_exit_code(status)], (
+            f"README places {status.value} at {placed}, "
+            f"but check-evidence returns {evidence_exit_code(status)}"
+        )
+
+
+def test_readme_scopes_the_check_evidence_missing_code_to_the_kind_that_reaches_it(
+    copied_example: Path,
+) -> None:
+    """The code-3 cell said "`missing` or malformed", and both halves over-claimed.
+
+    Measured here rather than described: an attestation that is absent or
+    malformed is `review_required` and exits 4, so only `json_assertion`
+    evidence can reach 3 at all. `docs/SINGLE-EVIDENCE-CHECK.md` already said
+    so; the README was the outlier, and a row that names the wrong code is
+    exactly the pipeline defect the shared exit-code contract exists to
+    prevent.
+    """
+    manifest = load_manifest(copied_example / "obligations.toml")
+    evidence_root = copied_example / "evidence"
+    selected = {
+        evidence.kind: (evidence.evidence_id, evidence_root / evidence.path)
+        for obligation in manifest.obligations
+        for evidence in obligation.evidence
+    }
+    assert set(selected) == set(EvidenceKind), "the example no longer spans every evidence kind"
+
+    reaching_not_observed = set()
+    for kind, (evidence_id, artifact) in selected.items():
+        for unusable in (lambda: artifact.unlink(), lambda: artifact.write_text("{", "utf-8")):
+            unusable()
+            document = check_declared_evidence(manifest, evidence_id, evidence_root)
+            if evidence_check_exit_code(document) == NOT_OBSERVED:
+                reaching_not_observed.add(kind)
+    assert reaching_not_observed == {EvidenceKind.JSON_ASSERTION}, (
+        f"exit {NOT_OBSERVED} is reachable from {sorted(reaching_not_observed)}"
+    )
+
+    documented = _documented_row_codes("check-evidence")
+    by_code = {code: cell for cell, code in documented.items()}
+    assert EvidenceKind.JSON_ASSERTION.value in by_code[NOT_OBSERVED], (
+        "the code-3 cell must name the one evidence kind that can reach it"
+    )
+    assert "attestation" in by_code[evidence_exit_code(ResultStatus.REVIEW_REQUIRED)]
 
 
 def test_readme_keeps_the_input_error_code_reserved() -> None:

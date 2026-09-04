@@ -150,7 +150,7 @@ an evaluated negative outcome apart from a tool or input error:
 | 1 | evidence was read and did not pass; a result document exists |
 | 2 | manifest, lookup, path, argument, or document input error; **no result document** |
 | 3 | required evidence was absent or unusable, so nothing was observed |
-| 4 | an attestation is unbound, malformed, or awaiting review |
+| 4 | an attestation is absent, unusable, unbound, or awaiting review |
 
 Code 2 is reserved: it always means no result document was produced, and no
 evaluated state maps onto it. A `rejected` evaluation and an unreadable manifest
@@ -161,13 +161,21 @@ which one it received.
 |---|---|---|---|---|
 | `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
 | `verify` | verified | payload digest or replay mismatch | — | — |
-| `check-evidence` | `pass` | observed `fail` | `missing` or malformed | `review_required` |
+| `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
 | `validate`, `evidence-plan`, `verify-evidence-plan`, `research-metrics` | success | — | — | — |
 
 `accepted_with_findings` exits 0 because every `must` obligation passed and only
 a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
 missing evidence, awaiting review, and unverifiable into one state and cannot
 honestly choose between them; `check-evidence` reports the per-item code.
+
+For `check-evidence`, 3 and 4 divide by evidence kind, not by failure mode.
+Only `json_assertion` evidence can reach 3. An attestation that is absent or
+malformed is `review_required` and exits 4, because an attestation nobody could
+read is a review that has not happened rather than an observation that was not
+made — the same reason a missing artifact never becomes an observed `fail`. The
+[single-evidence check format](docs/SINGLE-EVIDENCE-CHECK.md) states the status
+set each kind may preserve.
 
 A `verify` failure is code 1, not 2: a receipt that does not reproduce is an
 integrity finding about that receipt, not a failure to read it.
