@@ -8,9 +8,9 @@ All notable changes will be documented here.
 
 - `pointer.py`, one RFC 6901 definition shared by manifest loading,
   evidence-plan validation, and evaluation.
-- `waivers.yml`, recording the one CICD-13 element this repository cannot
-  implement, with an owner and a mandatory expiry, and a merge-blocking test
-  that fails once that expiry passes.
+- `waivers.yml`, recording each control this repository cannot implement, with
+  an owner and a mandatory expiry, and a merge-blocking test that fails once
+  that expiry passes.
 - Strict source-bound obligation manifest.
 - Automated JSON assertions, manual review attestations, external attestations,
   and explicit unverifiable obligations.
@@ -30,6 +30,28 @@ All notable changes will be documented here.
   attestation.
 - `security` and `incident` repository labels, and a private-advisory
   reporting route documented in `SECURITY.md`.
+
+- Pinned receipt payload digests: two literals that fail on any change to the
+  bytes a receipt carries. Nothing pinned them before, so every determinism
+  test compared two values that moved together and a wire-format change passed
+  a full green suite.
+- Tests for defenses the threat model claimed and nothing held: each of the
+  four attestation identity bindings independently, `O_NOFOLLOW` on both
+  bounded readers, acceptance at exactly each size cap, and the lowercase-digest
+  requirement across all four verifiers.
+- `[project.urls]`, so a built distribution carries Homepage, Repository,
+  Issues, Changelog and Documentation links; it carried none.
+- `Typing :: Typed`, advertising the `py.typed` marker the wheel already
+  shipped, plus audience, environment and testing classifiers.
+- `twine check --strict` in `make package-check`, and `tests/test_packaging_metadata.py`
+  holding `CITATION.cff` to the version `pyproject.toml` declares -- the one
+  version string no other gate could reach.
+- A CI step asserting every pinned action SHA is a tag in the repository the
+  pin names. Resolving the SHA through the commits endpoint cannot do this:
+  GitHub forks share the upstream object store, so a commit that exists only
+  in a fork returns 200 against the upstream repository.
+- `timeout-minutes` on every runner job, replacing the six-hour default on
+  workflows that execute fork-authored code.
 
 ### Changed
 
@@ -97,6 +119,30 @@ All notable changes will be documented here.
   cross-repository reusable-workflow pins stay in step, in both directions, so
   neither a renamed workflow nor a stale ignore entry can quietly reintroduce a
   failing weekly update job or suppress a live dependency.
+
+- Count requirements rather than bytes in `dependency-scan`, and drop
+  `--no-dev`. The export always carries a comment header, so `test -s` was
+  true when nothing would be audited: pip-audit ran against an empty set and
+  the "no runtime dependencies" branch was unreachable. The development
+  toolchain, which is what actually executes in CI, is now in scope.
+- Widen the lockfile-drift guard from `ci.yml` alone to every workflow and
+  `.pre-commit-config.yaml`, and fix the two violations outside its old scope:
+  `release.yml` installed with `uv sync --frozen`, and a `pre-push` hook ran a
+  bare `uv run` that rewrites `uv.lock` in the working tree.
+- Widen the publication boundary assertions from `release.yml` alone to every
+  workflow, and assert declared permissions rather than only command spellings.
+- Add `scripts` to the Semgrep targets; it holds a gate implementation that
+  runs in CI and was never scanned.
+- Derive `__version__` from installed distribution metadata, pin the hatchling
+  build backend, and align the package keywords with the repository topics.
+- Retire WVR-008 rather than renew it. It was granted because code scanning
+  was unavailable on a private repository and named its own revisit trigger:
+  the repository is public and code scanning is available but unconfigured, so
+  every clause of its rationale is false. The gap is real, open, and now
+  unwaived; the expiry test would not have caught this for twelve more weeks,
+  because it detects decay by time and this waiver decayed by a change of fact.
+- Ignore `.claude/worktrees/`, so a checkout of another branch inside the
+  repository cannot fail this one's `ruff check .`.
 
 ### Fixed
 
@@ -192,7 +238,34 @@ All notable changes will be documented here.
   red or silenced with an unscoped workaround.
 - Switch the `zizmor` job off the SARIF/GitHub-Advanced-Security upload path
   (`advanced-security: true`, the action's default), which always failed
-  because code scanning is not enabled on this private repo, in favor of
+  because code scanning was not enabled on this then-private repository, in
+  favor of
   plain GitHub Actions annotations; zizmor's own exit code still fails the
   job on real findings, and the job no longer needs `security-events` or
   `actions` permissions to run.
+- Keep the operating-system failure cause out of the digested receipt payload.
+  `detail` interpolated the exception class name, so one `missing` verdict
+  digested three ways depending on whether an artifact was absent, unreachable
+  or unreadable, and a receipt written in one environment failed replay in
+  another as a payload mismatch.
+- Refuse an evidence root that is not a directory. `Path.resolve(strict=True)`
+  succeeds on a regular file, so a mistyped `--evidence-root` produced a
+  checksummed receipt reporting the obligations unmet, indistinguishable from
+  a supplier that delivered nothing.
+- Return the documented exit code when stdout is a closed pipe; a broken pipe
+  exited 120, outside the band callers are told they never have to guess about.
+- Catch `BoundedPathError` and `StrictJsonError` in the CLI: both are
+  `ValueError` subclasses that were absent from the band, so either would have
+  printed a traceback and exited 1 rather than 2.
+- Correct the `check-evidence` exit-code rows. An absent or unusable
+  attestation exits 4, not 3; only `json_assertion` evidence reaches `missing`.
+  The split is by evidence kind, not by failure mode.
+- Correct the README tagline, which claimed the clause-to-obligation
+  conversion the tool refuses to perform and a human performs.
+
+### Removed
+
+- `sha256_file`, an unbounded reader with no `O_NOFOLLOW`, no regular-file
+  check and no size cap, in a module whose stated discipline is bounded
+  fail-closed reads. It had no callers and its own test held it at full
+  coverage.

@@ -90,7 +90,7 @@ jobs:
     timeout-minutes: 15 # clones the full history (fetch-depth: 0) before scanning it
     permissions:
       contents: read
-      pull-requests: read # required on private repos: gitleaks-action lists the PR's commits
+      pull-requests: read # gitleaks-action lists the PR's commits through this API
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,12 +131,14 @@ jobs:
           persist-credentials: false
       - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
         with:
-          # Code scanning / GitHub Advanced Security is not enabled on this
-          # private repo, so the default SARIF-upload path
-          # (advanced-security: true) always fails at the upload step with
-          # "Code scanning is not enabled for this repository." Emit plain
-          # GitHub Actions annotations instead; zizmor's own exit code
-          # still fails the job on real findings.
+          # Code scanning is available on this public repository but is not
+          # configured (`code-scanning/default-setup` reports
+          # state: not-configured), so the default SARIF-upload path
+          # (advanced-security: true) still fails at the upload step. Emit
+          # plain GitHub Actions annotations instead; zizmor's own exit code
+          # still fails the job on real findings. Flip this to true in the
+          # same change that configures code scanning -- the blocker is
+          # configuration now, not repository visibility.
           advanced-security: false
           annotations: true
 
