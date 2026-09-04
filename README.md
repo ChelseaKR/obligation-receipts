@@ -1,7 +1,8 @@
 # Obligation Receipts
 
-Turn approved software-acceptance promises into testable obligations with
-verifiable evidence receipts.
+Test whether an approved software-acceptance obligation has the evidence its
+accountable owner declared, and record exactly what was checked in a replayable
+receipt.
 
 **Status:** technical alpha (`M0`) · offline CLI and synthetic demonstration ·
 Apache-2.0
@@ -149,7 +150,7 @@ an evaluated negative outcome apart from a tool or input error:
 | 1 | evidence was read and did not pass; a result document exists |
 | 2 | manifest, lookup, path, argument, or document input error; **no result document** |
 | 3 | required evidence was absent or unusable, so nothing was observed |
-| 4 | an attestation is unbound, malformed, or awaiting review |
+| 4 | an attestation is absent, unusable, unbound, or awaiting review |
 
 Code 2 is reserved: it always means no result document was produced, and no
 evaluated state maps onto it. A `rejected` evaluation and an unreadable manifest
@@ -160,13 +161,21 @@ which one it received.
 |---|---|---|---|---|
 | `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
 | `verify` | verified | payload digest or replay mismatch | — | — |
-| `check-evidence` | `pass` | observed `fail` | `missing` or malformed | `review_required` |
+| `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
 | `validate`, `evidence-plan`, `verify-evidence-plan`, `research-metrics` | success | — | — | — |
 
 `accepted_with_findings` exits 0 because every `must` obligation passed and only
 a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
 missing evidence, awaiting review, and unverifiable into one state and cannot
 honestly choose between them; `check-evidence` reports the per-item code.
+
+For `check-evidence`, 3 and 4 divide by evidence kind, not by failure mode.
+Only `json_assertion` evidence can reach 3. An attestation that is absent or
+malformed is `review_required` and exits 4, because an attestation nobody could
+read is a review that has not happened rather than an observation that was not
+made — the same reason a missing artifact never becomes an observed `fail`. The
+[single-evidence check format](docs/SINGLE-EVIDENCE-CHECK.md) states the status
+set each kind may preserve.
 
 A `verify` failure is code 1, not 2: a receipt that does not reproduce is an
 integrity finding about that receipt, not a failure to read it.
@@ -212,8 +221,9 @@ The overall result is:
 - Duplicate JSON keys, non-finite numbers, invalid UTF-8, and JSON deeper than 64
   levels or larger than 100,000 nodes fail closed.
 - A manifest-authored JSON pointer that is not well formed under RFC 6901 is an
-  input error at load time, not an observed failure. All three commands share
-  one definition of well formed, so they cannot disagree about a manifest.
+  input error at load time, not an observed failure. Manifest loading,
+  evidence-plan validation, and evaluation share one definition of well formed
+  (`pointer.py`), so no two commands can disagree about the same manifest.
 - Evidence is parsed and hashed from the same bounded byte snapshot.
 - Contract-source hashing is capped at 16 MiB; manifests, JSON evidence, plans,
   and receipts are capped at 2 MiB.
@@ -249,9 +259,9 @@ exactly what was checked and nothing more.
 | Standard | State |
 |---|---|
 | Responsible-Tech Framework | Applies — see the [current audit](docs/RESPONSIBLE-TECH-AUDITS.md) |
-| Code Quality | Applies — Python 3.12, Ruff, strict mypy, and pytest, all merge-blocking through `make verify` |
+| Code Quality | Applies — Python 3.12, with `uv lock --check`, Ruff, strict mypy, and pytest all merge-blocking through `make verify`, in that order so no gate can run against a lockfile it has silently relocked |
 | Security & Supply-Chain | Applies — bounded local evidence, zero runtime dependencies, digest-pinned CI actions, and merge-blocking SAST, secret, and dependency scans |
-| CI/CD | Applies — hosted CI on `push` and `pull_request`, carried by `ci.yml` since the first commit; the `protect-main` ruleset, active since 2026-08-07, requires a pull request and all six checks (`verify`, `package`, `dependency-scan`, `secret-scan`, `sast`, `zizmor`), having required only `verify` until the change recorded in the CHANGELOG; gap tracked in #16 for the CodeQL `language: actions` element, waived in [waivers.yml](waivers.yml) |
+| CI/CD | Applies — hosted CI on `push` and `pull_request`, carried by `ci.yml` since the first commit; the `protect-main` ruleset, active since 2026-08-07, requires a pull request and all six checks (`verify`, `package`, `dependency-scan`, `secret-scan`, `sast`, `zizmor`), having required only `verify` until the change recorded in the CHANGELOG; gap tracked in #16 for the CodeQL `language: actions` element, now unwaived — WVR-008 was retired when this repository became public, because code scanning is available here and the analysis is simply unconfigured |
 | Release & Versioning | Applies — build-only release-candidate workflow with SBOM, provenance attestation, and a keyless signature over `dist/SHA256SUMS`; it deliberately holds no publication authority, so the rest of the hardened-release shape presupposes a publish step this project does not have; recorded as WVR-009 in [waivers.yml](waivers.yml) |
 | Observability | Applies — Tier C: the CLI is offline, emits no operational telemetry, and says so in [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
 | Performance | Applies — narrowly: `make benchmark` reports a bounded synthetic median and p95, with no invented latency threshold until a representative workload is observed |
@@ -267,9 +277,9 @@ exactly what was checked and nothing more.
 ## Provenance
 
 This project is developed AI-assisted (Claude Code) under an accountable human
-maintainer. Every change must pass the merge-blocking `make verify` gate (Ruff,
-strict mypy, and pytest with a 90% branch-coverage floor) plus the committed CI
-security scans. Development assistance does not change the product boundary:
+maintainer. Every change must pass the merge-blocking `make verify` gate
+(`uv lock --check`, Ruff, strict mypy, and pytest with a 90% branch-coverage
+floor) plus the committed CI security scans. Development assistance does not change the product boundary:
 the shipped tool remains standard-library only and makes no LLM or network call
 in validation, evaluation, or verification.
 

@@ -727,6 +727,41 @@ def test_plan_generation_refuses_an_evidence_path_outside_the_root(
         build_evidence_plan(manifest)
 
 
+@pytest.mark.parametrize(
+    ("location", "key"),
+    [
+        ("plan", "payload_sha256"),
+        ("payload", "manifest_sha256"),
+        ("payload", "source_sha256"),
+    ],
+)
+def test_every_plan_digest_field_must_be_lowercase(
+    example_manifest: Path,
+    location: str,
+    key: str,
+) -> None:
+    """The plan verifier only format-checks its digests, so the pattern is the rule.
+
+    Relaxing `_SHA256_PATTERN` to case-insensitive survived the whole suite.
+    Nothing here recomputes `manifest_sha256` or `source_sha256` from anything;
+    they are copied out of the manifest and checked for shape alone. If the
+    shape check accepted either case, the same manifest could be projected into
+    several distinct plans, each with its own canonical `payload_sha256`, and
+    every one of them verifying -- so a plan digest would stop identifying a
+    plan.
+    """
+    plan = build_evidence_plan(load_manifest(example_manifest))
+    holder = plan if location == "plan" else _payload(plan)
+    original = holder[key]
+    assert isinstance(original, str)
+    assert original != original.upper()
+    holder[key] = original.upper()
+    if location != "plan":
+        _rehash(plan)
+    with pytest.raises(EvidencePlanError, match="must be a lowercase SHA-256 digest"):
+        verify_evidence_plan(plan)
+
+
 def test_plan_rejects_an_unsupported_document_schema(example_manifest: Path) -> None:
     plan = build_evidence_plan(load_manifest(example_manifest))
     plan["schema_version"] = "obligation-receipts/receipt/v0.1"

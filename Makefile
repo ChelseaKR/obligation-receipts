@@ -51,9 +51,15 @@ test:
 
 verify: lock-check lint type test
 
+# `check_wheel.py` verifies wheel MEMBERSHIP exhaustively and metadata not at
+# all; `twine check --strict` is the other half, and it ran nowhere. `dist` is
+# cleared first so both checks measure this build rather than whatever an
+# earlier one left behind.
 package-check:
+	rm -rf dist
 	uv build
 	uv run --locked python scripts/check_wheel.py dist
+	uv run --locked --group package twine check --strict dist/*
 
 benchmark:
 	uv run --locked python scripts/benchmark_m0.py

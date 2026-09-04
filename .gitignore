@@ -9,3 +9,6 @@ __pycache__/
 *.py[cod]
 dist/
 examples/*/out/
+
+# Agent worktrees: checkouts of this repo, linted and tested on their own branch.
+.claude/worktrees/

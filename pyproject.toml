@@ -1,5 +1,13 @@
 [build-system]
-requires = ["hatchling"]
+# Pinned because this was the one unpinned input in an otherwise fully pinned
+# toolchain. PEP 518 build requirements are resolved fresh at build time and are
+# NOT recorded in uv.lock -- `hatchling` appears there zero times -- so `uv lock
+# --check` cannot see this line at all. The backend is also what writes METADATA
+# and therefore what chooses `Metadata-Version: 2.5`, the field that decides
+# whether `twine check` can read the distribution at all (measured: twine 6.2.0
+# raises InvalidDistribution on 2.5, twine 7.0.0 accepts it). An unpinned backend
+# is an unpinned metadata format.
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -10,14 +18,63 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "Chelsea Kelly-Reif" }]
-keywords = ["acceptance-testing", "procurement", "evidence", "provenance", "public-interest"]
+keywords = [
+  "acceptance-testing",
+  "civic-tech",
+  "deterministic",
+  "evidence",
+  "fail-closed",
+  "federal-acquisition-regulation",
+  "government-contracting",
+  "govtech",
+  "offline-first",
+  "provenance",
+  "public-procurement",
+  "receipts",
+  "replay",
+  "section-508",
+  "software-acceptance",
+  "supply-chain-security",
+]
+# Every entry is validated at build time: hatchling raises `Unknown classifier in
+# field `project.classifiers`` against the trove-classifiers list, so an invented
+# one fails `make package-check` rather than shipping.
+#
+# There is deliberately no `License :: OSI Approved :: ...` entry. PEP 639 makes
+# the `license` SPDX expression above and a license classifier mutually
+# exclusive; setuptools hard-errors on the pair, hatchling accepts it silently,
+# and the built METADATA carried both `License-Expression: Apache-2.0` and the
+# classifier. The expression is the normative form, so the classifier goes.
+#
+# `Programming Language :: Python :: 3.13` is also absent on purpose: CI tests
+# 3.12 and nothing else, and a classifier is a support claim, not an aspiration.
 classifiers = [
   "Development Status :: 3 - Alpha",
-  "License :: OSI Approved :: Apache Software License",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Intended Audience :: Legal Industry",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
   "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Software Development :: Testing :: Acceptance",
+  # The package ships `py.typed` and is checked under strict mypy. Without this
+  # classifier no consumer can discover that from the distribution metadata.
+  "Typing :: Typed",
 ]
 dependencies = []
+
+# Absent entirely before this: the built METADATA carried zero `Project-URL:`
+# lines, so a published wheel pointed nowhere -- no repository, no issue tracker,
+# no changelog. Every URL below resolves today.
+[project.urls]
+Homepage = "https://github.com/ChelseaKR/obligation-receipts"
+Repository = "https://github.com/ChelseaKR/obligation-receipts"
+Issues = "https://github.com/ChelseaKR/obligation-receipts/issues"
+Changelog = "https://github.com/ChelseaKR/obligation-receipts/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/ChelseaKR/obligation-receipts/tree/main/docs"
 
 [dependency-groups]
 dev = [
@@ -25,6 +82,18 @@ dev = [
   "pytest>=8",
   "pytest-cov>=5",
   "ruff>=0.15",
+]
+# `make package-check` only. Kept out of `dev` so the default sync -- and the
+# `uv export --locked` the dependency-scan job audits -- stays the runtime and
+# test toolchain, but still resolved into uv.lock so the version and its whole
+# transitive tree are pinned and hashed like everything else.
+#
+# Pinned exactly, and to >=7, because the floor is load-bearing: hatchling emits
+# `Metadata-Version: 2.5` and twine 6.2.0 rejects that outright with
+# `InvalidDistribution: '2.5' is not a valid metadata version` -- the gate would
+# fail on every distribution rather than on bad ones.
+package = [
+  "twine==7.0.0",
 ]
 
 [project.scripts]
