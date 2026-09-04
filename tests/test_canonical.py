@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from obligation_receipts.canonical import (
-    MAX_JSON_NODES,
     StrictJsonError,
     canonical_json_bytes,
     sha256_bytes,
@@ -25,9 +24,24 @@ def test_hash_helpers(tmp_path: Path) -> None:
     assert sha256_file(artifact) == expected
 
 
-def test_json_shape_rejects_excessive_node_count() -> None:
+def test_json_node_budget_is_exactly_one_hundred_thousand_nodes() -> None:
+    """Pin the node cap with literals, because the constant cannot pin itself.
+
+    This test used to build its input from `MAX_JSON_NODES` -- the very
+    constant it was checking -- so it passed for any value of it. Raising the
+    cap a thousandfold left the suite green and merely slower, which is exactly
+    the change a node cap exists to prevent.
+
+    A list contributes one node for itself plus one per member, so `99_999`
+    members is exactly the 100,000-node budget and `100_000` members is one
+    over. Stating both halves as literals means moving the constant in either
+    direction fails one of them.
+    """
+    inside = [None] * 99_999
+    assert validate_json_value(inside) is inside
+
     with pytest.raises(StrictJsonError, match="node limit"):
-        validate_json_value([None] * MAX_JSON_NODES)
+        validate_json_value([None] * 100_000)
 
 
 def test_validate_json_value_accepts_finite_floats() -> None:
