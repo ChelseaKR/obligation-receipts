@@ -28,7 +28,7 @@ def test_every_workflow_file_is_discovered_by_the_supply_chain_gate() -> None:
     )
 
 
-def test_ci_actions_are_digest_pinned_and_release_does_not_publish() -> None:
+def test_ci_actions_are_digest_pinned() -> None:
     root = Path(__file__).parents[1]
     workflows = workflow_files(root)
     assert workflows
@@ -40,13 +40,80 @@ def test_ci_actions_are_digest_pinned_and_release_does_not_publish() -> None:
         assert all(action_pattern.fullmatch(line) for line in uses_lines)
         assert "pull_request_target:" not in text
         assert "permissions: write-all" not in text
+
+
+#: Ways to publish, spelled as commands. A blocklist of spellings is open-ended by
+#: construction -- these four were the whole check, and `twine upload`, `hatch publish`,
+#: `flit publish` and a plain POST to the PyPI legacy upload API all walked past it -- so
+#: this list is the weaker half of the publication ban and is not relied on alone.
+_PUBLISH_COMMANDS = (
+    "gh release create",
+    "pypa/gh-action-pypi-publish",
+    "pypi-publish",
+    "uv publish",
+    "twine upload",
+    "hatch publish",
+    "flit publish",
+    "poetry publish",
+    "upload.pypi.org",
+    "test.pypi.org",
+    "softprops/action-gh-release",
+    "ncipollo/release-action",
+)
+
+#: Ways to publish, spelled as capability. This is the half that closes: a job cannot
+#: create a GitHub release without `contents: write` or push a package to the registry
+#: without `packages: write`, whatever binary it invokes to do it. `attestations: write`
+#: and `id-token: write` are not on this list -- release.yml needs both to attest and sign
+#: the candidate, and neither can publish anything.
+_PUBLISH_PERMISSIONS = ("contents: write", "packages: write")
+
+
+def _publication_capabilities(text: str) -> list[str]:
+    """Everything in one workflow that could publish a release or a distribution."""
+    return [needle for needle in _PUBLISH_COMMANDS + _PUBLISH_PERMISSIONS if needle in text]
+
+
+def test_no_workflow_can_publish_a_release() -> None:
+    """The publication ban has to cover every workflow, not one filename.
+
+    This read a hardcoded `.github/workflows/release.yml`. A second workflow --
+    `publish.yml`, say -- could have declared `contents: write` and run
+    `gh release create`, and passed every assertion in this file, because nothing
+    read it. The ban now applies to every file GitHub would execute.
+
+    Widened in the other direction too. The old list named four publish commands;
+    the set of ways to upload a distribution is not four, and is not closed. So the
+    ban is stated as capability as well as spelling: `gh api` is not on the command
+    list precisely because ci.yml's pin-identity job uses it under `contents: read`,
+    and it is the permission blocklist, not a spelling, that stops the same binary
+    from being pointed at the releases endpoint.
+    """
+    root = Path(__file__).parents[1]
+    workflows = workflow_files(root)
+    assert workflows
+
+    # The reader must be able to fail. Both halves, on synthetic text, before any
+    # clean result from the real files is worth reading.
+    assert _publication_capabilities("permissions:\n  contents: write\n") == ["contents: write"]
+    assert _publication_capabilities("run: twine upload dist/*\n") == ["twine upload"]
+    assert _publication_capabilities("permissions:\n  contents: read\n") == []
+
+    offenders = [
+        f"{workflow.name}: {found}"
+        for workflow in workflows
+        for found in _publication_capabilities(workflow.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
+        f"these workflows can publish a release or a distribution: {offenders}. "
+        "Publication is a human step performed against a signed, attested candidate; "
+        "no workflow in this repository is permitted to do it."
+    )
+
     release = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "name: release-candidate" in release
-    assert "contents: write" not in release
-    assert "pypa/gh-action-pypi-publish" not in release
-    assert "gh release create" not in release
-    assert "pypi-publish" not in release
-    assert "uv publish" not in release
+    assert "name: release-candidate" in release, (
+        "release.yml must announce itself as a candidate builder, not a publisher"
+    )
 
 
 _THIS_REPO = "chelseakr/obligation-receipts"
