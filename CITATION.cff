@@ -1,7 +1,6 @@
-# `date-released` and `doi` are deliberately omitted. Nothing has been released
-# -- zero tags, zero releases -- and no DOI has been minted, so either field
-# would be a fabricated citation. They belong in the first release commit, not
-# here. `version` is held equal to `project.version` in pyproject.toml by
+# `date-released` is the date v0.1.0 was tagged. `doi` remains omitted: no DOI
+# has been minted, and a fabricated one would be a false citation record.
+# `version` is held equal to `project.version` in pyproject.toml by
 # `tests/test_packaging_metadata.py`: it is the one copy of the version that
 # distribution metadata cannot reach.
 cff-version: 1.2.0
@@ -12,6 +11,7 @@ authors:
   - family-names: Kelly-Reif
     given-names: Chelsea
 version: 0.1.0
+date-released: 2026-09-04
 license: Apache-2.0
 repository-code: "https://github.com/ChelseaKR/obligation-receipts"
 url: "https://github.com/ChelseaKR/obligation-receipts"
