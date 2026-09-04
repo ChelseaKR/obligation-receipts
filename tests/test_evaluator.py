@@ -141,6 +141,46 @@ def test_attestation_rejects_whitespace_only_required_field(copied_example: Path
     assert evaluation.results[1].status is ResultStatus.REVIEW_REQUIRED
 
 
+@pytest.mark.parametrize(
+    ("field", "wrong_value"),
+    [
+        ("contract_id", "some-other-contract"),
+        ("contract_version", "0.9"),
+        ("obligation_id", "a3-external-acr"),
+        ("schema_version", "obligation-receipts/attestation/v0.2"),
+    ],
+)
+def test_attestation_requires_every_identity_binding_independently(
+    copied_example: Path,
+    field: str,
+    wrong_value: str,
+) -> None:
+    """Each identity binding must be load-bearing on its own.
+
+    `manifest_sha256` is deliberately left correct in every case, so an
+    attestation that is content-bound to this exact manifest still cannot be
+    replayed against a different contract, a different version of it, a
+    different obligation, or read as a format it does not claim to be. Without
+    a case per field, deleting any one of these four comparisons left the whole
+    suite green: the remaining bindings covered for the deleted one.
+
+    `schema_version` is the sharpest of the four. An attestation self-labelled
+    `.../attestation/v0.2` announces that it is a different format; accepting
+    it means evaluating unknown fields under v0.1 rules and reporting `pass`.
+    """
+    path = copied_example / "evidence" / "manual" / "keyboard-review.json"
+    attestation = json.loads(path.read_text(encoding="utf-8"))
+    assert attestation[field] != wrong_value
+    attestation[field] = wrong_value
+    _write_json(path, attestation)
+    manifest = load_manifest(copied_example / "obligations.toml")
+    assert attestation["manifest_sha256"] == manifest.manifest_sha256
+
+    evaluation = evaluate_manifest(manifest, copied_example / "evidence")
+    assert evaluation.results[1].status is ResultStatus.REVIEW_REQUIRED
+    assert evaluation.overall_status is OverallStatus.INCOMPLETE
+
+
 def test_one_attestation_cannot_satisfy_two_declared_evidence_ids(
     example_manifest: Path,
 ) -> None:
