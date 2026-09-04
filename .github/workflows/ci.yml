@@ -61,14 +61,19 @@ jobs:
         with:
           version: "0.11.29"
           python-version: "3.12"
-      - name: Audit locked runtime dependencies
+      - name: Audit locked dependencies
         run: |
-          uv export --locked --no-dev --no-emit-project --no-hashes > /tmp/runtime-requirements.txt
-          if test -s /tmp/runtime-requirements.txt; then
-            uvx --from pip-audit==2.10.1 pip-audit --strict --requirement /tmp/runtime-requirements.txt
-          else
-            echo "No runtime dependencies to audit."
+          set -euo pipefail
+          uv export --locked --no-emit-project --no-hashes > /tmp/requirements.txt
+          # Count requirements, not bytes: the export always carries a comment
+          # header, so `test -s` is true even when nothing would be audited.
+          count="$(grep -cvE '^[[:space:]]*(#|$)' /tmp/requirements.txt || true)"
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::export produced zero requirements; this audit would be vacuous"
+            exit 1
           fi
+          echo "auditing ${count} locked requirements"
+          uvx --from pip-audit==2.10.1 pip-audit --strict --requirement /tmp/requirements.txt
 
   secret-scan:
     runs-on: ubuntu-latest
