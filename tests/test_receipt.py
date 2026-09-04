@@ -237,6 +237,67 @@ def _fresh_receipt(example_manifest: Path) -> dict[str, JsonValue]:
     )
 
 
+def _digest_holder(receipt: dict[str, JsonValue], location: str) -> dict[str, JsonValue]:
+    if location == "receipt":
+        return receipt
+    payload = receipt["payload"]
+    assert isinstance(payload, dict)
+    if location == "payload":
+        return payload
+    if location == "contract":
+        contract = payload["contract"]
+        assert isinstance(contract, dict)
+        return contract
+    obligations = payload["obligations"]
+    assert isinstance(obligations, list)
+    first = obligations[0]
+    assert isinstance(first, dict)
+    evidence = first["evidence"]
+    assert isinstance(evidence, list)
+    item = evidence[0]
+    assert isinstance(item, dict)
+    return item
+
+
+@pytest.mark.parametrize(
+    ("location", "key"),
+    [
+        ("receipt", "payload_sha256"),
+        ("payload", "manifest_sha256"),
+        ("contract", "source_sha256"),
+        ("evidence", "artifact_sha256"),
+    ],
+)
+def test_every_receipt_digest_field_must_be_lowercase(
+    example_manifest: Path,
+    location: str,
+    key: str,
+) -> None:
+    """`_SHA256_PATTERN` is a canonicalisation rule, not a spelling preference.
+
+    The receipt verifier only format-checks these fields; it never recomputes
+    them, so the pattern is the only thing that fixes their spelling. Relaxing
+    it to case-insensitive survived the whole suite -- and it would mean the
+    same evaluation can be written as several distinct receipts, each with a
+    different canonical digest, and every one of them verifying. A digest that
+    is supposed to be one identifier for one artifact would stop being one.
+
+    Each case rehashes the payload where the mutated field lives inside it, so
+    the only thing standing between the document and a clean `verify_receipt`
+    is the case of the digest.
+    """
+    receipt = _fresh_receipt(example_manifest)
+    holder = _digest_holder(receipt, location)
+    original = holder[key]
+    assert isinstance(original, str)
+    assert original != original.upper()
+    holder[key] = original.upper()
+    if location != "receipt":
+        _rehash(receipt)
+    with pytest.raises(ReceiptError, match="must be a lowercase SHA-256 digest"):
+        verify_receipt(receipt)
+
+
 def test_recomputed_arbitrary_payload_is_not_a_valid_receipt(example_manifest: Path) -> None:
     receipt = build_receipt(
         evaluate_manifest(load_manifest(example_manifest), example_manifest.parent / "evidence"),
