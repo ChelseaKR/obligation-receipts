@@ -1,4 +1,6 @@
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 # GitHub honours both spellings, so a gate that reads only one of them is blind
@@ -176,13 +178,28 @@ def test_dependabot_ignore_list_matches_the_cross_repo_reusable_workflow_pins() 
 
 _SEMGREP_COMMAND = re.compile(r"semgrep scan\s+(?P<flags>[^\n]*)")
 
+#: Semgrep flags that consume the word after them. A flag missing from this set has its
+#: value read as a scan target -- `--metrics off` used to contribute a target named `off`
+#: -- which is why every target is asserted to be a real path below.
+_SEMGREP_VALUE_FLAGS = frozenset(
+    {"--config", "--metrics", "--exclude", "--include", "--severity", "--jobs", "--output"}
+)
+
 
 def _semgrep_targets(root: Path) -> list[str]:
-    """The paths `.github/workflows/ci.yml` tells Semgrep to scan."""
-    ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    match = _SEMGREP_COMMAND.search(ci)
-    assert match is not None, "no `semgrep scan` step found in ci.yml"
-    words = match.group("flags").split()
+    """The paths the workflows tell Semgrep to scan.
+
+    Read from every workflow rather than a hardcoded `ci.yml`, and required to be a
+    single invocation: a second, narrower `semgrep scan` elsewhere would otherwise be
+    a scope this gate never sees.
+    """
+    commands = [
+        match
+        for workflow in workflow_files(root)
+        for match in _SEMGREP_COMMAND.findall(workflow.read_text(encoding="utf-8"))
+    ]
+    assert len(commands) == 1, f"expected exactly one `semgrep scan` step, found {commands}"
+    words = commands[0].split()
     targets = []
     skip_next = False
     for word in words:
@@ -190,11 +207,65 @@ def _semgrep_targets(root: Path) -> list[str]:
             skip_next = False
             continue
         if word.startswith("--"):
-            skip_next = word in {"--config"}
+            skip_next = word in _SEMGREP_VALUE_FLAGS
             continue
         targets.append(word)
     assert targets, "the semgrep step names no scan targets"
+    missing = [target for target in targets if not (root / target).exists()]
+    assert not missing, (
+        f"the semgrep step names {missing}, which are not paths in this repository. "
+        "Either a target was deleted, or a flag's value is being read as a target "
+        f"because the flag is missing from {sorted(_SEMGREP_VALUE_FLAGS)}."
+    )
     return targets
+
+
+def _directories_holding_tracked_python(root: Path) -> set[str]:
+    """Top-level directories holding tracked `.py` files, as git sees them.
+
+    `git ls-files`, not a filesystem walk: the SAST gate's subject is the code this
+    repository commits, and a walk would have to re-implement `.gitignore` to say the
+    same thing -- it would report `.venv/` as a directory the scan must cover. A
+    tracked `.py` at the repository root is reported as `.`, the target that would
+    have to be named to scan it.
+    """
+    git = shutil.which("git")
+    assert git is not None, "git is not on PATH, so this gate cannot enumerate tracked files"
+    completed = subprocess.run(  # noqa: S603 - resolved git path, fixed argv, no shell
+        [git, "-C", str(root), "ls-files", "-z", "--", "*.py"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    tracked = [name for name in completed.stdout.split("\0") if name]
+    assert tracked, "git lists no tracked .py files; the reader is broken, not the repository"
+    return {name.split("/")[0] if "/" in name else "." for name in tracked}
+
+
+def test_sast_scans_every_directory_that_holds_tracked_python() -> None:
+    """The SAST gate's targets must cover the whole tree it is supposed to cover.
+
+    `semgrep scan ... src tests` stopped one directory short. `scripts/` is under
+    `[tool.mypy] strict = true` and holds `check_wheel.py`, which is a gate
+    implementation `ci.yml` runs -- and it was outside the scan. Measured: an
+    `os.system(sys.argv[1])` added to `scripts/check_wheel.py` was zero findings
+    under `src tests` and one blocking finding under `scripts src tests`.
+
+    Naming the directories one by one is fine; leaving one out is what was not
+    noticed, so the list is derived from git rather than from memory. The next
+    top-level directory of Python added to this repository fails here until it is
+    named, instead of being scanned by nobody.
+    """
+    root = Path(__file__).parents[1]
+    holding_python = _directories_holding_tracked_python(root)
+    assert holding_python, "no directories of tracked Python found"
+    targets = {target.rstrip("/") for target in _semgrep_targets(root)}
+    # `.` as a target scans the whole tree, so it covers every subdirectory at once.
+    unscanned = set() if "." in targets else holding_python - targets
+    assert not unscanned, (
+        f"these directories hold tracked Python that Semgrep never reads: {sorted(unscanned)}. "
+        f"The scan targets are {sorted(targets)}."
+    )
 
 
 def test_sast_actually_scans_every_directory_it_claims_to_scan() -> None:

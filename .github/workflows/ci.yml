@@ -99,8 +99,14 @@ jobs:
         with:
           version: "0.11.29"
           python-version: "3.12"
+      # Every top-level directory that holds tracked Python, which
+      # `tests/test_supply_chain.py` derives from `git ls-files` and asserts
+      # against this line. `scripts/` was outside the scan while being inside
+      # strict mypy and holding `check_wheel.py`, a gate implementation this
+      # workflow runs -- an `os.system(sys.argv[1])` added there was invisible
+      # to `src tests` and is a blocking finding once `scripts` is named.
       - name: Semgrep
-        run: uvx --from semgrep==1.168.0 semgrep scan --error --metrics off --config p/python src tests
+        run: uvx --from semgrep==1.168.0 semgrep scan --error --metrics off --config p/python scripts src tests
 
   zizmor:
     runs-on: ubuntu-latest
