@@ -4,6 +4,16 @@ All notable changes will be documented here.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] - 2026-09-04
+
+First tagged technical-alpha candidate. M0 scope: an offline CLI that evaluates
+a human-authored obligation manifest against bounded local evidence and issues
+an unsigned deterministic receipt. Not published to any package index; the
+release workflow builds and attests a candidate and holds no publication
+authority (WVR-009).
+
 ### Added
 
 - `pointer.py`, one RFC 6901 definition shared by manifest loading,
