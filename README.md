@@ -1,7 +1,8 @@
 # Obligation Receipts
 
-Turn approved software-acceptance promises into testable obligations with
-verifiable evidence receipts.
+Test whether an approved software-acceptance obligation has the evidence its
+accountable owner declared, and record exactly what was checked in a replayable
+receipt.
 
 **Status:** technical alpha (`M0`) · offline CLI and synthetic demonstration ·
 Apache-2.0
