@@ -336,6 +336,28 @@ _NUMBER_WORDS = {
 }
 
 
+def test_every_shipped_subcommand_appears_in_the_documented_exit_code_table() -> None:
+    """A command that ships without a documented exit code is an undocumented gate.
+
+    `check-evidence` and the shared exit-code contract shipped, acquired a
+    format document and a Breaking changelog entry, and appeared in neither
+    requirement ledger. The exit-code table is the one place that must name
+    every command, so it is read against the subparsers `cli.py` registers.
+    """
+    source = (_SOURCE_PACKAGE / "cli.py").read_text(encoding="utf-8")
+    commands = re.findall(r"add_parser\(\s*\"([a-z][a-z-]*)\"", source, re.S)
+    assert commands, "no subparsers parsed out of cli.py; the reader is broken, not the file"
+    table = re.search(
+        r"^\| Command \| 0 \| 1 \| 3 \| 4 \|\n(?:\|.*\n)+",
+        _readme(),
+        re.M,
+    )
+    if table is None:
+        raise AssertionError("README has no per-command exit-code table")
+    missing = [command for command in commands if f"`{command}`" not in table.group(0)]
+    assert not missing, f"the exit-code table does not name the shipped commands {missing}"
+
+
 def _verify_gate_commands() -> list[str]:
     """The commands `make verify` runs, in order, read out of the `Makefile`."""
     text = _MAKEFILE.read_text(encoding="utf-8")
