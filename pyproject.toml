@@ -1,5 +1,13 @@
 [build-system]
-requires = ["hatchling"]
+# Pinned because this was the one unpinned input in an otherwise fully pinned
+# toolchain. PEP 518 build requirements are resolved fresh at build time and are
+# NOT recorded in uv.lock -- `hatchling` appears there zero times -- so `uv lock
+# --check` cannot see this line at all. The backend is also what writes METADATA
+# and therefore what chooses `Metadata-Version: 2.5`, the field that decides
+# whether `twine check` can read the distribution at all (measured: twine 6.2.0
+# raises InvalidDistribution on 2.5, twine 7.0.0 accepts it). An unpinned backend
+# is an unpinned metadata format.
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -25,6 +33,18 @@ dev = [
   "pytest>=8",
   "pytest-cov>=5",
   "ruff>=0.15",
+]
+# `make package-check` only. Kept out of `dev` so the default sync -- and the
+# `uv export --locked` the dependency-scan job audits -- stays the runtime and
+# test toolchain, but still resolved into uv.lock so the version and its whole
+# transitive tree are pinned and hashed like everything else.
+#
+# Pinned exactly, and to >=7, because the floor is load-bearing: hatchling emits
+# `Metadata-Version: 2.5` and twine 6.2.0 rejects that outright with
+# `InvalidDistribution: '2.5' is not a valid metadata version` -- the gate would
+# fail on every distribution rather than on bad ones.
+package = [
+  "twine==7.0.0",
 ]
 
 [project.scripts]
