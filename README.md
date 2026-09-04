@@ -259,7 +259,7 @@ exactly what was checked and nothing more.
 | Standard | State |
 |---|---|
 | Responsible-Tech Framework | Applies — see the [current audit](docs/RESPONSIBLE-TECH-AUDITS.md) |
-| Code Quality | Applies — Python 3.12, Ruff, strict mypy, and pytest, all merge-blocking through `make verify` |
+| Code Quality | Applies — Python 3.12, with `uv lock --check`, Ruff, strict mypy, and pytest all merge-blocking through `make verify`, in that order so no gate can run against a lockfile it has silently relocked |
 | Security & Supply-Chain | Applies — bounded local evidence, zero runtime dependencies, digest-pinned CI actions, and merge-blocking SAST, secret, and dependency scans |
 | CI/CD | Applies — hosted CI on `push` and `pull_request`, carried by `ci.yml` since the first commit; the `protect-main` ruleset, active since 2026-08-07, requires a pull request and all six checks (`verify`, `package`, `dependency-scan`, `secret-scan`, `sast`, `zizmor`), having required only `verify` until the change recorded in the CHANGELOG; gap tracked in #16 for the CodeQL `language: actions` element, now unwaived — WVR-008 was retired when this repository became public, because code scanning is available here and the analysis is simply unconfigured |
 | Release & Versioning | Applies — build-only release-candidate workflow with SBOM, provenance attestation, and a keyless signature over `dist/SHA256SUMS`; it deliberately holds no publication authority, so the rest of the hardened-release shape presupposes a publish step this project does not have; recorded as WVR-009 in [waivers.yml](waivers.yml) |
@@ -277,9 +277,9 @@ exactly what was checked and nothing more.
 ## Provenance
 
 This project is developed AI-assisted (Claude Code) under an accountable human
-maintainer. Every change must pass the merge-blocking `make verify` gate (Ruff,
-strict mypy, and pytest with a 90% branch-coverage floor) plus the committed CI
-security scans. Development assistance does not change the product boundary:
+maintainer. Every change must pass the merge-blocking `make verify` gate
+(`uv lock --check`, Ruff, strict mypy, and pytest with a 90% branch-coverage
+floor) plus the committed CI security scans. Development assistance does not change the product boundary:
 the shipped tool remains standard-library only and makes no LLM or network call
 in validation, evaluation, or verification.
 

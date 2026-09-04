@@ -85,8 +85,11 @@ def test_readme_scopes_the_check_evidence_missing_code_to_the_kind_that_reaches_
 
     reaching_not_observed = set()
     for kind, (evidence_id, artifact) in selected.items():
-        for unusable in (lambda: artifact.unlink(), lambda: artifact.write_text("{", "utf-8")):
-            unusable()
+        for make_unusable in ("absent", "malformed"):
+            if make_unusable == "absent":
+                artifact.unlink()
+            else:
+                artifact.write_text("{", encoding="utf-8")
             document = check_declared_evidence(manifest, evidence_id, evidence_root)
             if evidence_check_exit_code(document) == NOT_OBSERVED:
                 reaching_not_observed.add(kind)
@@ -304,6 +307,8 @@ def test_every_waiver_names_a_standards_control_and_this_repo() -> None:
 
 _ROOT = Path(__file__).parents[1]
 _CI = _ROOT / ".github/workflows/ci.yml"
+_MAKEFILE = _ROOT / "Makefile"
+_CONTRIBUTING = _ROOT / "CONTRIBUTING.md"
 _ROADMAP = _ROOT / "docs/ROADMAP.md"
 _ARCHITECTURE = _ROOT / "docs/ARCHITECTURE.md"
 _SOURCE_PACKAGE = _ROOT / "src/obligation_receipts"
@@ -329,6 +334,59 @@ _NUMBER_WORDS = {
     15: "fifteen",
     16: "sixteen",
 }
+
+
+def _verify_gate_commands() -> list[str]:
+    """The commands `make verify` runs, in order, read out of the `Makefile`."""
+    text = _MAKEFILE.read_text(encoding="utf-8")
+    prerequisites = re.search(r"^verify:(.*)$", text, re.M)
+    if prerequisites is None:
+        raise AssertionError("the Makefile has no `verify` target")
+    commands: list[str] = []
+    for target in prerequisites.group(1).split():
+        recipe = re.search(rf"^{re.escape(target)}:.*\n((?:\t.*\n)+)", text, re.M)
+        if recipe is None:
+            raise AssertionError(f"`verify` requires {target}, which has no recipe")
+        for line in recipe.group(1).splitlines():
+            command = line.strip().removeprefix("uv run --locked ")
+            commands.append(command.removesuffix(" .").strip())
+    return commands
+
+
+def test_every_description_of_the_merge_gate_lists_the_steps_it_actually_runs() -> None:
+    """`make verify` gained a first step that no description of it mentioned.
+
+    `uv lock --check` became the gate's first prerequisite in #40, and it is
+    load-bearing: a bare `uv run` syncs implicitly and rewrites `uv.lock` when
+    it disagrees with `pyproject.toml`, so a gate that runs before the lockfile
+    assertion can repair the drift it exists to expose and still report green.
+    `CONTRIBUTING.md` and the README both went on enumerating the gate as
+    "Ruff, strict mypy, pytest". The enumeration is now read out of the
+    `Makefile`, in order.
+    """
+    commands = _verify_gate_commands()
+    assert commands[0] == "uv lock --check", (
+        f"the lockfile assertion is no longer `verify`'s first step: {commands}"
+    )
+    contributing = _CONTRIBUTING.read_text(encoding="utf-8")
+    positions = []
+    for command in commands:
+        index = contributing.find(f"`{command}`")
+        assert index != -1, f"CONTRIBUTING.md does not name the gate step `{command}`"
+        positions.append(index)
+    assert positions == sorted(positions), (
+        f"CONTRIBUTING.md lists the gate steps out of the order `make verify` runs them: {commands}"
+    )
+    code_quality = " | ".join(
+        next(row for row in _conformance_rows() if row[0] == "Code Quality")[1:]
+    )
+    assert "`uv lock --check`" in code_quality, "the Code Quality row omits the lockfile gate"
+    provenance = re.search(r"^## Provenance[ \t]*\n(.*?)(?=^##[ \t]+|\Z)", _readme(), re.M | re.S)
+    if provenance is None:
+        raise AssertionError("README has no 'Provenance' section")
+    assert "`uv lock --check`" in provenance.group(1), (
+        "the README's Provenance paragraph describes a gate that is missing its first step"
+    )
 
 
 def test_the_architecture_component_list_names_every_runtime_module() -> None:
