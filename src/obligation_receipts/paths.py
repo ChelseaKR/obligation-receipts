@@ -31,6 +31,20 @@ def validate_portable_relative_path(relative_path: str) -> None:
         raise BoundedPathError("artifact path escapes its declared root")
 
 
+def resolve_evidence_root(root: Path) -> Path:
+    """Resolve an existing directory to evaluate evidence beneath.
+
+    `Path.resolve(strict=True)` succeeds on a regular file, so without this a
+    mistyped `--evidence-root` reaches the evaluator, every artifact lookup
+    fails with NotADirectoryError, and the run produces a receipt reporting
+    that the evidence was not delivered.
+    """
+    resolved = root.resolve(strict=True)
+    if not resolved.is_dir():
+        raise BoundedPathError("evidence root is not a directory")
+    return resolved
+
+
 def resolve_bounded_file(root: Path, relative_path: str) -> Path:
     """Resolve an existing regular file beneath root."""
     validate_portable_relative_path(relative_path)

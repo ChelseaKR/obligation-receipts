@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from obligation_receipts.canonical import canonical_json_bytes
+from obligation_receipts.canonical import StrictJsonError, canonical_json_bytes
 from obligation_receipts.evaluator import evaluate_manifest
 from obligation_receipts.exit_codes import INPUT_ERROR, OBSERVED_FAILURE, OK, evaluation_exit_code
 from obligation_receipts.manifest import ManifestError, load_manifest
 from obligation_receipts.models import JsonValue
+from obligation_receipts.paths import BoundedPathError
 from obligation_receipts.plan import (
     EvidencePlanError,
     build_evidence_plan,
@@ -92,7 +94,20 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _print_json(value: dict[str, JsonValue]) -> None:
-    sys.stdout.buffer.write(canonical_json_bytes(value) + b"\n")
+    """Write one canonical JSON line, surviving a reader that has stopped reading.
+
+    `obligation-receipts ... | head -1` closes the pipe early. Without this the
+    write, or the interpreter's shutdown flush, raises BrokenPipeError and the
+    process exits 120 -- outside the documented {0,1,2,3,4} band that callers
+    are told they never have to guess about. Redirecting the descriptor to
+    devnull silences the shutdown flush so the computed verdict is what the
+    caller receives.
+    """
+    try:
+        sys.stdout.buffer.write(canonical_json_bytes(value) + b"\n")
+        sys.stdout.buffer.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
 def _validate(path: Path) -> int:
@@ -242,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
         EvidenceCheckError,
         ReceiptError,
         ResearchError,
+        BoundedPathError,
+        StrictJsonError,
         FileNotFoundError,
         NotADirectoryError,
         OSError,

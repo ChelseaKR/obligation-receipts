@@ -48,9 +48,17 @@ jobs:
           set -euo pipefail
           PACKAGE_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           test "${RELEASE_TAG}" = "v${PACKAGE_VERSION}"
+      # `--locked`, not `--frozen`. `--frozen` installs exactly what uv.lock
+      # records and never reads pyproject.toml, so it cannot see the two
+      # disagree. A release is the one change guaranteed to desynchronise
+      # them -- the version bump lands in pyproject.toml and the lock has to
+      # be re-resolved to match -- so this is the path on which `--frozen`
+      # was least able to notice and most likely to be wrong: it would have
+      # built a candidate for the tagged version out of a lock still
+      # recording the previous one.
       - name: Verify and build candidate
         run: |
-          uv sync --frozen
+          uv sync --locked
           make verify
           make demo
           make package-check

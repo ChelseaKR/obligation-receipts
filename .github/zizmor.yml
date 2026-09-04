@@ -21,9 +21,23 @@
 # offline audits) stays active for every `uses:` line, including the
 # public actions in these workflows.
 #
-# The one pin this leaves unchecked -- release.yml:20 -- is still verified
-# by hand before every bump: the SHA must resolve to a signed, tagged
-# commit on portfolio-standards.
+# The disable is repo-wide, so what it leaves unchecked is repo-wide too.
+# This said "the one pin this leaves unchecked -- release.yml:20", which
+# was the one pin that MOTIVATED the disable, not the extent of it: the
+# rule is off for every pinned reference in both workflow files, 9 distinct
+# refs, 8 of them public actions the token can read perfectly well. The
+# private pin is the reason; it is not the scope.
+#
+# That is why the `zizmor` job in ci.yml carries one more step, "Resolve
+# every pinned SHA against the repository it names". It asks the identity
+# question this rule is off for, on all 8 readable pins, and skips only
+# ChelseaKR/portfolio-standards -- which stays verified by hand before
+# every bump: the SHA must resolve to a signed, tagged commit on
+# portfolio-standards. It also asks it a way `gh api
+# repos/<owner>/<repo>/commits/<sha>` cannot: forks share the upstream
+# object store, so that endpoint returns 200 for a commit that exists only
+# in a fork. The job matches the SHA against the named repository's own tag
+# refs, which forks do not share.
 #
 # Re-enable once the zizmor job is given a credential that can read
 # portfolio-standards (e.g. a fine-grained PAT with contents:read on that
