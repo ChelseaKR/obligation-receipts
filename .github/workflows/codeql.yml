@@ -1,0 +1,55 @@
+name: codeql
+
+# CICD-13 requires a CodeQL `language: actions` analysis. WVR-008 waived it
+# while this repository was private and code scanning was unavailable; the
+# waiver was retired when the repository became public, leaving the gap open
+# and unwaived. This workflow closes the analysis half of it.
+#
+# It is NOT yet a required status check: `protect-main` names the six `ci.yml`
+# jobs, and adding a seventh context to the ruleset is a repository-settings
+# change made outside this repository. Until that happens this analysis
+# reports without being able to block, which is the exact shape issue #16
+# recorded. The README's CI/CD row says so rather than implying otherwise.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Rerun weekly so a newly published query reaches committed code that has
+    # not changed. Analysis findings decay by the query set, not by the diff.
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # the only permission that can upload a SARIF result
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: ${{ matrix.language }}
+          # `security-extended` over the default suite: this repository's
+          # threat model is hostile input to a fail-closed parser, and the
+          # extended suite carries the taint queries that reach it.
+          queries: security-extended
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: /language:${{ matrix.language }}
