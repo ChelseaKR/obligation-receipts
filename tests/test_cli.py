@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -669,3 +670,50 @@ def test_evidence_plan_refuses_a_plan_without_a_payload(
     )
     monkeypatch.setattr(cli_module, "write_evidence_plan", lambda path, plan: None)
     assert main(["evidence-plan", str(example_manifest), "--out", str(tmp_path / "plan.json")]) == 2
+
+
+@pytest.mark.parametrize(
+    "argv_builder",
+    [
+        pytest.param(
+            lambda manifest, root, out: [
+                "evaluate",
+                str(manifest),
+                "--evidence-root",
+                str(root),
+                "--out",
+                str(out),
+            ],
+            id="evaluate",
+        ),
+        pytest.param(
+            lambda manifest, root, out: [
+                "check-evidence",
+                str(manifest),
+                "a1-axe-summary",
+                "--evidence-root",
+                str(root),
+            ],
+            id="check-evidence",
+        ),
+    ],
+)
+def test_an_evidence_root_that_is_not_a_directory_is_an_input_error(
+    tmp_path: Path,
+    example_manifest: Path,
+    capsys: pytest.CaptureFixture[str],
+    argv_builder: Callable[[Path, Path, Path], list[str]],
+) -> None:
+    """A mistyped root must not become a record that the evidence was not delivered.
+
+    `Path.resolve(strict=True)` succeeds on a regular file, so this used to run
+    to completion: every artifact lookup failed, and `evaluate` wrote a
+    checksummed receipt reporting the obligations as unmet with exit 3. A
+    receipt is a claim about a supplier; an operator typo must not produce one.
+    """
+    receipt = tmp_path / "receipt.json"
+    argv = argv_builder(example_manifest, example_manifest, receipt)
+
+    assert main(argv) == 2
+    assert "evidence root is not a directory" in capsys.readouterr().err
+    assert not receipt.exists()

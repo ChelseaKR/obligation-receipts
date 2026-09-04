@@ -7,11 +7,12 @@ import json
 import sys
 from pathlib import Path
 
-from obligation_receipts.canonical import canonical_json_bytes
+from obligation_receipts.canonical import StrictJsonError, canonical_json_bytes
 from obligation_receipts.evaluator import evaluate_manifest
 from obligation_receipts.exit_codes import INPUT_ERROR, OBSERVED_FAILURE, OK, evaluation_exit_code
 from obligation_receipts.manifest import ManifestError, load_manifest
 from obligation_receipts.models import JsonValue
+from obligation_receipts.paths import BoundedPathError
 from obligation_receipts.plan import (
     EvidencePlanError,
     build_evidence_plan,
@@ -242,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         EvidenceCheckError,
         ReceiptError,
         ResearchError,
+        BoundedPathError,
+        StrictJsonError,
         FileNotFoundError,
         NotADirectoryError,
         OSError,
