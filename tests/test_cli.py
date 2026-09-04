@@ -5,6 +5,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from shutil import copytree
 from typing import cast
 
 import coverage
@@ -717,3 +718,37 @@ def test_an_evidence_root_that_is_not_a_directory_is_an_input_error(
     assert main(argv) == 2
     assert "evidence root is not a directory" in capsys.readouterr().err
     assert not receipt.exists()
+
+
+def test_a_reader_that_stops_reading_still_gets_the_documented_exit_code(
+    tmp_path: Path, example_root: Path
+) -> None:
+    """`... | head -1` must not push the exit code outside {0, 1, 2, 3, 4}.
+
+    Writing to a closed pipe, or the interpreter's shutdown flush of one, used
+    to raise BrokenPipeError and exit 120. `exit_codes.py` promises a caller
+    never has to guess which code it received, and a `case $?` dispatcher over
+    the documented band falls through silently on 120.
+    """
+    root = tmp_path / "example"
+    copytree(example_root, root)
+    (root / "evidence" / "automated" / "axe-summary.json").unlink()
+
+    argv = [
+        sys.executable,
+        "-m",
+        "obligation_receipts.cli",
+        "check-evidence",
+        str(root / "obligations.toml"),
+        "a1-axe-summary",
+        "--evidence-root",
+        str(root / "evidence"),
+    ]
+    with subprocess.Popen(  # noqa: S603 - fixed argv: sys.executable plus tmp_path
+        argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=_measured_child_env()
+    ) as process:
+        assert process.stdout is not None
+        process.stdout.close()
+        returncode = process.wait(timeout=60)
+
+    assert returncode == 3, "the missing-evidence verdict must survive the closed pipe"

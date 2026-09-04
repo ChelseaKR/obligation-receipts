@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -93,7 +94,20 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _print_json(value: dict[str, JsonValue]) -> None:
-    sys.stdout.buffer.write(canonical_json_bytes(value) + b"\n")
+    """Write one canonical JSON line, surviving a reader that has stopped reading.
+
+    `obligation-receipts ... | head -1` closes the pipe early. Without this the
+    write, or the interpreter's shutdown flush, raises BrokenPipeError and the
+    process exits 120 -- outside the documented {0,1,2,3,4} band that callers
+    are told they never have to guess about. Redirecting the descriptor to
+    devnull silences the shutdown flush so the computed verdict is what the
+    caller receives.
+    """
+    try:
+        sys.stdout.buffer.write(canonical_json_bytes(value) + b"\n")
+        sys.stdout.buffer.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
 def _validate(path: Path) -> int:
