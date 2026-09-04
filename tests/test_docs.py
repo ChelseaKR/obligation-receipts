@@ -305,12 +305,57 @@ def test_every_waiver_names_a_standards_control_and_this_repo() -> None:
 _ROOT = Path(__file__).parents[1]
 _CI = _ROOT / ".github/workflows/ci.yml"
 _ROADMAP = _ROOT / "docs/ROADMAP.md"
+_ARCHITECTURE = _ROOT / "docs/ARCHITECTURE.md"
+_SOURCE_PACKAGE = _ROOT / "src/obligation_receipts"
 _PYPROJECT = _ROOT / "pyproject.toml"
 _PLANS = _ROOT / "docs/plans"
 
-# Enough English to name the job count in prose. A seventh job fails the
-# lookup rather than passing with the wrong word.
-_NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight"}
+# Enough English to name a count in prose. An unlisted count fails the lookup
+# rather than passing with the wrong word.
+_NUMBER_WORDS = {
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+    13: "thirteen",
+    14: "fourteen",
+    15: "fifteen",
+    16: "sixteen",
+}
+
+
+def test_the_architecture_component_list_names_every_runtime_module() -> None:
+    """A component list that reads as exhaustive has to be exhaustive.
+
+    `canonical.py` and `exit_codes.py` were both absent from it -- the seam
+    every digest passes through and the contract every command's exit code
+    comes from -- while the surrounding prose described the list as the
+    system's components. The list now states its own count, and both the count
+    and the membership are read off the source tree.
+    """
+    modules = sorted(path.name for path in _SOURCE_PACKAGE.glob("*.py"))
+    section = re.search(
+        r"^##[ \t]+Components[ \t]*\n(.*?)(?=^##[ \t]+|\Z)",
+        _ARCHITECTURE.read_text(encoding="utf-8"),
+        re.M | re.S,
+    )
+    if section is None:
+        raise AssertionError("ARCHITECTURE.md has no 'Components' section")
+    named = sorted(set(re.findall(r"^- `([a-z_]+\.py)`", section.group(1), re.M)))
+    assert named == modules, (
+        f"the component list omits {sorted(set(modules) - set(named))} "
+        f"and invents {sorted(set(named) - set(modules))}"
+    )
+    assert f"All {_NUMBER_WORDS[len(modules)]} modules" in section.group(1), (
+        f"the section does not say it covers all {len(modules)} modules"
+    )
 
 
 def _job_name_pattern(job: str) -> str:

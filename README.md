@@ -221,8 +221,9 @@ The overall result is:
 - Duplicate JSON keys, non-finite numbers, invalid UTF-8, and JSON deeper than 64
   levels or larger than 100,000 nodes fail closed.
 - A manifest-authored JSON pointer that is not well formed under RFC 6901 is an
-  input error at load time, not an observed failure. All three commands share
-  one definition of well formed, so they cannot disagree about a manifest.
+  input error at load time, not an observed failure. Manifest loading,
+  evidence-plan validation, and evaluation share one definition of well formed
+  (`pointer.py`), so no two commands can disagree about the same manifest.
 - Evidence is parsed and hashed from the same bounded byte snapshot.
 - Contract-source hashing is capped at 16 MiB; manifests, JSON evidence, plans,
   and receipts are capped at 2 MiB.
