@@ -14,7 +14,13 @@ repos:
     hooks:
       - id: mypy
         name: mypy --strict
-        entry: uv run mypy
+        # `--locked`, not a bare `uv run`. A bare `uv run` syncs implicitly,
+        # and an implicit sync re-resolves and rewrites uv.lock in the working
+        # tree when it disagrees with pyproject.toml. This hook runs at
+        # pre-push: the drift would be repaired silently in the instant before
+        # the push, leaving the rewritten lock behind for the next `git add`
+        # to sweep up. `--locked` refuses to run instead of relocking.
+        entry: uv run --locked mypy
         language: system
         pass_filenames: false
         stages: [pre-push]
