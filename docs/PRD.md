@@ -121,8 +121,28 @@ the tool into legal interpretation or bespoke consulting.
      evidence sufficiency, interpretation, evaluation, or an official decision.
    - Manifest-backed verification requires exact regeneration; checksum-only
      verification is labeled as self-consistency.
+7. **Single declared-evidence check.**
+   - Exactly one declared evidence item is evaluated by its globally unique ID;
+     siblings are neither read nor reported.
+   - The result preserves that one item's status, never aggregates, and fixes
+     `obligation_evaluation_complete` to `false` even when the item passes.
+   - Artifact paths, evidence content, assertion details, evaluator detail text,
+     and every aggregate disposition are omitted.
+   - The declared and unchecked evidence counts are stated, so the result cannot
+     be read as covering the obligation.
+8. **One shared CLI exit-code contract.**
+   - Every command draws from one band, defined once in
+     `obligation_receipts.exit_codes`.
+   - Code 2 is reserved for "no result document was produced"; no evaluated
+     state maps onto it.
+   - An evaluated negative outcome is distinguishable from a tool or input
+     error: `rejected` exits 1, `incomplete` exits 3, and a `verify` mismatch
+     exits 1 because a receipt that does not reproduce is a finding about that
+     receipt rather than a failure to read it.
 
 ### P1 — only after discovery
+
+Matches `docs/ROADMAP.md`'s "M1 only if proceed thresholds pass".
 
 - A versioned JSON Schema for interchange.
 - Staleness and validity windows for external evidence.
@@ -130,16 +150,26 @@ the tool into legal interpretation or bespoke consulting.
 - Human-readable static trace report with WCAG 2.2 AA gates.
 - Amendment comparison: added, removed, tightened, loosened, and reclassified
   obligations.
-- A mapping-review queue for proposed clauses, still requiring human activation.
+- Cryptographic signer roles for manifest approval and evidence review.
+  Promoted from P2: `docs/THREAT-MODEL.md` records that "M1 must add role
+  separation, coverage reporting, amendment history, and signed approvals
+  before production use", `docs/RED-TEAM.md` lists signed roles first among its
+  production blockers, and the roadmap has always carried it under M1. P2 was
+  the outlier.
 
 ### P2 — future hypotheses
 
+Matches `docs/ROADMAP.md`'s "Later".
+
 - OCDS extension or export for implementation milestones.
 - Pact, SARIF, OSCAL, ACR, SBOM, and SLSA adapters.
-- Cryptographic signer roles for manifest approval and evidence review.
 - Hosted multi-party evidence exchange.
 - A model-assisted draft mapper, separately evaluated and prohibited from
   activation authority.
+- A mapping-review queue for proposed clauses, still requiring human activation.
+  Demoted from P1 to sit with the draft mapper it exists to gate: a queue of
+  proposed clauses presupposes something proposing them, and the roadmap
+  already grouped the two under "Later".
 
 ## Success metrics
 

@@ -30,6 +30,12 @@
       2026-08-27.
 - [x] One RFC 6901 pointer definition shared by load, plan, and evaluation,
       so an authoring defect is an input error rather than an observed fail
+- [x] Single declared-evidence check that preserves one item's status, reads no
+      sibling, and declares the obligation incomplete and the siblings
+      unchecked
+- [x] One shared CLI exit-code contract, with code 2 reserved for "no result
+      document was produced" so an evaluated negative outcome is never confused
+      with a tool or input error
 
 ## Next: discovery, not features
 
@@ -43,6 +49,8 @@
 
 ## M1 only if proceed thresholds pass
 
+Matches `docs/PRD.md`'s "P1 — only after discovery".
+
 - Signed manifest-approval and review roles.
 - Evidence validity windows and explicit staleness.
 - Coverage denominator: every in-scope clause must be classified.
@@ -53,6 +61,8 @@
   longer listed here: it shipped with the first commit, ahead of the thresholds.
 
 ## Later
+
+Matches `docs/PRD.md`'s "P2 — future hypotheses".
 
 - OCDS milestone export.
 - Cross-organization evidence exchange.

@@ -1,30 +1,27 @@
 # Waiver and exception registry for obligation-receipts.
 # Schema: STANDARDS/WAIVERS-SCHEMA.md (version 1). No entry, no waiver.
+#
+# WVR-008 (CICD-13, the CodeQL `language: actions` element) was RETIRED on
+# 2026-09-04 rather than renewed. It was granted on the premise that "code
+# scanning / GitHub Advanced Security is not enabled on this private
+# repository", and it named its own revisit trigger: "Revisit when either code
+# scanning is enabled for this repository or the repository becomes public."
+# Both halves have fired. `gh repo view --json isPrivate` returns false, and
+# `GET /repos/ChelseaKR/obligation-receipts/code-scanning/default-setup`
+# returns state `not-configured` for languages `actions` and `python`, while
+# the alerts endpoint returns "no analysis found" rather than "code scanning is
+# not enabled". The analysis is available and merely unconfigured, so the
+# argument that a CodeQL workflow "can only ever fail" is no longer true and
+# there is nothing left to waive.
+#
+# The gap itself is real and open, tracked in
+# https://github.com/ChelseaKR/obligation-receipts/issues/16. Adding the
+# workflow is follow-up work under `.github/`; this registry records only that
+# the exemption is withdrawn. It is withdrawn now rather than at its
+# 2026-11-30 expiry because the expiry test catches decay by time, and this
+# waiver decayed by a change of fact roughly twelve weeks earlier.
 version: 1
 waivers:
-  - id: WVR-008
-    control: CICD-13
-    repo: obligation-receipts
-    kind: other
-    reason: >-
-      CICD-13 requires a CodeQL `language: actions` analysis among the required
-      status checks. Code scanning / GitHub Advanced Security is not enabled on
-      this private repository, so a CodeQL workflow cannot upload results: it
-      would fail at the upload step with "Code scanning is not enabled for this
-      repository", which is the same constraint already documented in
-      `.github/workflows/ci.yml` for zizmor's SARIF path. Adding a workflow
-      that can only ever fail would be worse than the gap it closes. The
-      remaining five AUTO controls in scope are all binding: the `protect-main`
-      ruleset requires `verify`, `package`, `dependency-scan`, `secret-scan`,
-      `sast`, and `zizmor` by name, and zizmor's ability to turn a pull request
-      red was proved on 2026-08-27 (run 33034714935, exit 12). Workflow static
-      analysis is therefore covered by zizmor, not by CodeQL. Revisit when
-      either code scanning is enabled for this repository or the repository
-      becomes public.
-    owner: chelseakr
-    granted: 2026-08-28
-    expires: 2026-11-30
-    link: https://github.com/ChelseaKR/obligation-receipts/issues/16
   - id: WVR-009
     control: REL-14
     repo: obligation-receipts
