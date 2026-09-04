@@ -55,5 +55,7 @@ The contribution under test is the chain:
 - Path traversal and absolute evidence paths fail closed.
 - A failed `must` rejects; an unresolved `must` is incomplete.
 - Tampering with the receipt payload is detected.
-- Fresh replay matches the committed receipt payload.
+- Fresh replay reproduces a generated receipt's payload byte for byte. No
+  receipt is committed: they are disposable local artifacts, `examples/*/out/`
+  is gitignored, and `make demo` produces the receipt it then replays.
 - The PRD names a cheapest test and kill threshold for the product hypothesis.

@@ -2,21 +2,35 @@ import re
 from datetime import date
 from pathlib import Path
 
-from obligation_receipts.exit_codes import INPUT_ERROR, evaluation_exit_code
-from obligation_receipts.models import OverallStatus
+from obligation_receipts.exit_codes import (
+    INPUT_ERROR,
+    NOT_OBSERVED,
+    evaluation_exit_code,
+    evidence_exit_code,
+)
+from obligation_receipts.manifest import load_manifest
+from obligation_receipts.models import EvidenceKind, OverallStatus, ResultStatus
+from obligation_receipts.single_check import check_declared_evidence, evidence_check_exit_code
 
 
 def _readme() -> str:
     return (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 
 
+def _documented_row_codes(command: str) -> dict[str, int]:
+    """Read one per-command exit-code row out of the README's table."""
+    opening = f"| `{command}` |"
+    rows = [line for line in _readme().splitlines() if line.startswith(opening)]
+    assert len(rows) == 1, f"expected exactly one `{command}` exit-code row, found {len(rows)}"
+    cells = [cell.strip() for cell in rows[0].strip().strip("|").split("|")][1:]
+    columns = (0, 1, 3, 4)
+    assert len(cells) == len(columns), f"the {command} row must cover every documented code"
+    return {cell: code for cell, code in zip(cells, columns, strict=True)}
+
+
 def _documented_evaluate_codes() -> dict[str, int]:
     """Read the README's per-command exit-code row for `evaluate`."""
-    row = next(line for line in _readme().splitlines() if line.startswith("| `evaluate` |"))
-    cells = [cell.strip() for cell in row.strip().strip("|").split("|")][1:]
-    columns = (0, 1, 3, 4)
-    assert len(cells) == len(columns), "the evaluate row must cover every documented code"
-    return {cell: code for cell, code in zip(cells, columns, strict=True)}
+    return _documented_row_codes("evaluate")
 
 
 def test_readme_documents_the_exit_code_the_cli_actually_returns() -> None:
@@ -27,6 +41,68 @@ def test_readme_documents_the_exit_code_the_cli_actually_returns() -> None:
             f"README places {status.value} at {placed}, "
             f"but evaluate returns {evaluation_exit_code(status)}"
         )
+
+
+def test_readme_documents_the_exit_code_check_evidence_actually_returns() -> None:
+    """`check-evidence` is the only command that reports a per-item state.
+
+    `unverifiable` is deliberately absent from the row as well as from
+    `evidence_exit_code`: it belongs to an obligation that declares no evidence,
+    so no evidence item can carry it.
+    """
+    documented = _documented_row_codes("check-evidence")
+    for status in ResultStatus:
+        placed = [code for cell, code in documented.items() if f"`{status.value}`" in cell]
+        if status is ResultStatus.UNVERIFIABLE:
+            assert placed == [], f"the check-evidence row places {status.value} at {placed}"
+            continue
+        assert placed == [evidence_exit_code(status)], (
+            f"README places {status.value} at {placed}, "
+            f"but check-evidence returns {evidence_exit_code(status)}"
+        )
+
+
+def test_readme_scopes_the_check_evidence_missing_code_to_the_kind_that_reaches_it(
+    copied_example: Path,
+) -> None:
+    """The code-3 cell said "`missing` or malformed", and both halves over-claimed.
+
+    Measured here rather than described: an attestation that is absent or
+    malformed is `review_required` and exits 4, so only `json_assertion`
+    evidence can reach 3 at all. `docs/SINGLE-EVIDENCE-CHECK.md` already said
+    so; the README was the outlier, and a row that names the wrong code is
+    exactly the pipeline defect the shared exit-code contract exists to
+    prevent.
+    """
+    manifest = load_manifest(copied_example / "obligations.toml")
+    evidence_root = copied_example / "evidence"
+    selected = {
+        evidence.kind: (evidence.evidence_id, evidence_root / evidence.path)
+        for obligation in manifest.obligations
+        for evidence in obligation.evidence
+    }
+    assert set(selected) == set(EvidenceKind), "the example no longer spans every evidence kind"
+
+    reaching_not_observed = set()
+    for kind, (evidence_id, artifact) in selected.items():
+        for make_unusable in ("absent", "malformed"):
+            if make_unusable == "absent":
+                artifact.unlink()
+            else:
+                artifact.write_text("{", encoding="utf-8")
+            document = check_declared_evidence(manifest, evidence_id, evidence_root)
+            if evidence_check_exit_code(document) == NOT_OBSERVED:
+                reaching_not_observed.add(kind)
+    assert reaching_not_observed == {EvidenceKind.JSON_ASSERTION}, (
+        f"exit {NOT_OBSERVED} is reachable from {sorted(reaching_not_observed)}"
+    )
+
+    documented = _documented_row_codes("check-evidence")
+    by_code = {code: cell for cell, code in documented.items()}
+    assert EvidenceKind.JSON_ASSERTION.value in by_code[NOT_OBSERVED], (
+        "the code-3 cell must name the one evidence kind that can reach it"
+    )
+    assert "attestation" in by_code[evidence_exit_code(ResultStatus.REVIEW_REQUIRED)]
 
 
 def test_readme_keeps_the_input_error_code_reserved() -> None:
@@ -231,13 +307,135 @@ def test_every_waiver_names_a_standards_control_and_this_repo() -> None:
 
 _ROOT = Path(__file__).parents[1]
 _CI = _ROOT / ".github/workflows/ci.yml"
+_MAKEFILE = _ROOT / "Makefile"
+_CONTRIBUTING = _ROOT / "CONTRIBUTING.md"
 _ROADMAP = _ROOT / "docs/ROADMAP.md"
+_ARCHITECTURE = _ROOT / "docs/ARCHITECTURE.md"
+_SOURCE_PACKAGE = _ROOT / "src/obligation_receipts"
 _PYPROJECT = _ROOT / "pyproject.toml"
 _PLANS = _ROOT / "docs/plans"
 
-# Enough English to name the job count in prose. A seventh job fails the
-# lookup rather than passing with the wrong word.
-_NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight"}
+# Enough English to name a count in prose. An unlisted count fails the lookup
+# rather than passing with the wrong word.
+_NUMBER_WORDS = {
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+    13: "thirteen",
+    14: "fourteen",
+    15: "fifteen",
+    16: "sixteen",
+}
+
+
+def test_every_shipped_subcommand_appears_in_the_documented_exit_code_table() -> None:
+    """A command that ships without a documented exit code is an undocumented gate.
+
+    `check-evidence` and the shared exit-code contract shipped, acquired a
+    format document and a Breaking changelog entry, and appeared in neither
+    requirement ledger. The exit-code table is the one place that must name
+    every command, so it is read against the subparsers `cli.py` registers.
+    """
+    source = (_SOURCE_PACKAGE / "cli.py").read_text(encoding="utf-8")
+    commands = re.findall(r"add_parser\(\s*\"([a-z][a-z-]*)\"", source, re.S)
+    assert commands, "no subparsers parsed out of cli.py; the reader is broken, not the file"
+    table = re.search(
+        r"^\| Command \| 0 \| 1 \| 3 \| 4 \|\n(?:\|.*\n)+",
+        _readme(),
+        re.M,
+    )
+    if table is None:
+        raise AssertionError("README has no per-command exit-code table")
+    missing = [command for command in commands if f"`{command}`" not in table.group(0)]
+    assert not missing, f"the exit-code table does not name the shipped commands {missing}"
+
+
+def _verify_gate_commands() -> list[str]:
+    """The commands `make verify` runs, in order, read out of the `Makefile`."""
+    text = _MAKEFILE.read_text(encoding="utf-8")
+    prerequisites = re.search(r"^verify:(.*)$", text, re.M)
+    if prerequisites is None:
+        raise AssertionError("the Makefile has no `verify` target")
+    commands: list[str] = []
+    for target in prerequisites.group(1).split():
+        recipe = re.search(rf"^{re.escape(target)}:.*\n((?:\t.*\n)+)", text, re.M)
+        if recipe is None:
+            raise AssertionError(f"`verify` requires {target}, which has no recipe")
+        for line in recipe.group(1).splitlines():
+            command = line.strip().removeprefix("uv run --locked ")
+            commands.append(command.removesuffix(" .").strip())
+    return commands
+
+
+def test_every_description_of_the_merge_gate_lists_the_steps_it_actually_runs() -> None:
+    """`make verify` gained a first step that no description of it mentioned.
+
+    `uv lock --check` became the gate's first prerequisite in #40, and it is
+    load-bearing: a bare `uv run` syncs implicitly and rewrites `uv.lock` when
+    it disagrees with `pyproject.toml`, so a gate that runs before the lockfile
+    assertion can repair the drift it exists to expose and still report green.
+    `CONTRIBUTING.md` and the README both went on enumerating the gate as
+    "Ruff, strict mypy, pytest". The enumeration is now read out of the
+    `Makefile`, in order.
+    """
+    commands = _verify_gate_commands()
+    assert commands[0] == "uv lock --check", (
+        f"the lockfile assertion is no longer `verify`'s first step: {commands}"
+    )
+    contributing = _CONTRIBUTING.read_text(encoding="utf-8")
+    positions = []
+    for command in commands:
+        index = contributing.find(f"`{command}`")
+        assert index != -1, f"CONTRIBUTING.md does not name the gate step `{command}`"
+        positions.append(index)
+    assert positions == sorted(positions), (
+        f"CONTRIBUTING.md lists the gate steps out of the order `make verify` runs them: {commands}"
+    )
+    code_quality = " | ".join(
+        next(row for row in _conformance_rows() if row[0] == "Code Quality")[1:]
+    )
+    assert "`uv lock --check`" in code_quality, "the Code Quality row omits the lockfile gate"
+    provenance = re.search(r"^## Provenance[ \t]*\n(.*?)(?=^##[ \t]+|\Z)", _readme(), re.M | re.S)
+    if provenance is None:
+        raise AssertionError("README has no 'Provenance' section")
+    assert "`uv lock --check`" in provenance.group(1), (
+        "the README's Provenance paragraph describes a gate that is missing its first step"
+    )
+
+
+def test_the_architecture_component_list_names_every_runtime_module() -> None:
+    """A component list that reads as exhaustive has to be exhaustive.
+
+    `canonical.py` and `exit_codes.py` were both absent from it -- the seam
+    every digest passes through and the contract every command's exit code
+    comes from -- while the surrounding prose described the list as the
+    system's components. The list now states its own count, and both the count
+    and the membership are read off the source tree.
+    """
+    modules = sorted(path.name for path in _SOURCE_PACKAGE.glob("*.py"))
+    section = re.search(
+        r"^##[ \t]+Components[ \t]*\n(.*?)(?=^##[ \t]+|\Z)",
+        _ARCHITECTURE.read_text(encoding="utf-8"),
+        re.M | re.S,
+    )
+    if section is None:
+        raise AssertionError("ARCHITECTURE.md has no 'Components' section")
+    named = sorted(set(re.findall(r"^- `([a-z_]+\.py)`", section.group(1), re.M)))
+    assert named == modules, (
+        f"the component list omits {sorted(set(modules) - set(named))} "
+        f"and invents {sorted(set(named) - set(modules))}"
+    )
+    assert f"All {_NUMBER_WORDS[len(modules)]} modules" in section.group(1), (
+        f"the section does not say it covers all {len(modules)} modules"
+    )
 
 
 def _job_name_pattern(job: str) -> str:
@@ -383,6 +581,61 @@ def test_every_document_stating_the_coverage_floor_states_the_configured_one() -
         )
 
 
+# A tracked plan may record what held while its pass ran; it may not claim, in
+# the present tense, that it is not committed. The discriminator is tense, not
+# vocabulary: "nothing was committed while it ran" is true and stays allowed,
+# "Nothing is committed" is the false claim. Holding two literal strings caught
+# only the two spellings that happened to exist, and "Nothing is committed;
+# every change is in the working tree" walked past them.
+_UNCOMMITTED_DENIALS = (
+    # "Nothing is committed", "Nothing in this pass is committed",
+    # "no change is committed".
+    re.compile(r"\b(?:nothing|none|no\s+\w+)\b[^.;\n]{0,60}?\bis\s+(?:not\s+)?committed\b", re.I),
+    # "is not committed", "are not committed".
+    re.compile(r"\b(?:is|are)\s+not\s+committed\b", re.I),
+    # "is uncommitted", "remains uncommitted", "stays uncommitted".
+    re.compile(r"\b(?:is|are|remains?|stays?)\s+(?:still\s+)?uncommitted\b", re.I),
+    # "every change is in the working tree".
+    re.compile(
+        r"\b(?:every|all|each)\b[^.;\n]{0,40}?\b(?:is|are)\s+in\s+the\s+working[ -]tree\b", re.I
+    ),
+    # "Working-tree only." as an assertion, but not "the pass was working-tree
+    # only", which describes a past constraint rather than a present state.
+    re.compile(r"(?<!was\s)(?<!were\s)\bworking[ -]tree\s+only\b", re.I),
+)
+
+_DENIALS_THIS_GUARD_MUST_CATCH = (
+    "Working-tree only. Nothing in this pass is committed; the accountable maintainer",
+    "Nothing is committed; every change is in the working tree.",
+    "No change is committed yet.",
+    "The plan remains uncommitted.",
+    "This document is not committed.",
+)
+
+_TRUE_STATEMENTS_THIS_GUARD_MUST_ALLOW = (
+    "The pass itself was working-tree only: nothing was committed while it ran,",
+    "Nothing was committed while the pass ran; the work was merged to `main` afterwards.",
+    "No commit, no push, no pull-request write, no index or HEAD movement.",
+    "The work was merged to `main` in pull request #38, this file included.",
+)
+
+
+def test_the_uncommitted_denial_guard_rejects_the_family_and_not_the_record() -> None:
+    """The guard has to separate a false present claim from a true past one.
+
+    Both sentences contain the same words. Only one of them is a committed file
+    saying it is not committed, and a guard that cannot tell them apart either
+    misses the defect or forbids the correction.
+    """
+    for denial in _DENIALS_THIS_GUARD_MUST_CATCH:
+        assert any(pattern.search(denial) for pattern in _UNCOMMITTED_DENIALS), (
+            f"the guard does not catch {denial!r}"
+        )
+    for statement in _TRUE_STATEMENTS_THIS_GUARD_MUST_ALLOW:
+        matched = [pattern.pattern for pattern in _UNCOMMITTED_DENIALS if pattern.search(statement)]
+        assert not matched, f"the guard rejects the true statement {statement!r} via {matched}"
+
+
 def test_a_committed_plan_does_not_present_itself_as_uncommitted() -> None:
     """`Nothing in this pass is committed` was written in a committed file.
 
@@ -394,5 +647,7 @@ def test_a_committed_plan_does_not_present_itself_as_uncommitted() -> None:
     assert tracked, "docs/plans holds no plan; drop this guard or restore the file"
     for path in tracked:
         text = path.read_text(encoding="utf-8")
-        for denial in ("Nothing in this pass is committed", "Working-tree only."):
-            assert denial not in text, f"{path.name} is committed and says {denial!r}"
+        for pattern in _UNCOMMITTED_DENIALS:
+            found = pattern.search(text)
+            if found is not None:
+                raise AssertionError(f"{path.name} is committed and says {found.group(0)!r}")

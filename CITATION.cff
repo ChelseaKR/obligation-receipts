@@ -1,3 +1,9 @@
+# `date-released` and `doi` are deliberately omitted. Nothing has been released
+# -- zero tags, zero releases -- and no DOI has been minted, so either field
+# would be a fabricated citation. They belong in the first release commit, not
+# here. `version` is held equal to `project.version` in pyproject.toml by
+# `tests/test_packaging_metadata.py`: it is the one copy of the version that
+# distribution metadata cannot reach.
 cff-version: 1.2.0
 title: Obligation Receipts
 message: If you use this software, please cite it using this metadata.
@@ -7,3 +13,33 @@ authors:
     given-names: Chelsea
 version: 0.1.0
 license: Apache-2.0
+repository-code: "https://github.com/ChelseaKR/obligation-receipts"
+url: "https://github.com/ChelseaKR/obligation-receipts"
+abstract: >-
+  Obligation Receipts turns approved software-acceptance promises into testable
+  obligations and deterministic evidence receipts. It does not draft contracts
+  or decide what a contract means: an accountable human first converts approved
+  source language into an explicit manifest, and the tool then evaluates that
+  manifest against bounded local evidence, reporting each obligation as pass,
+  fail, missing, review_required, or unverifiable. Missing evidence never
+  becomes a failure or a pass. The receipt records what evidence was evaluated
+  under which manifest and source digest, and re-verifies offline. It is
+  unsigned at this milestone and therefore proves neither authorship nor that a
+  contracting authority accepted a deliverable.
+keywords:
+  - acceptance-testing
+  - civic-tech
+  - deterministic
+  - evidence
+  - fail-closed
+  - federal-acquisition-regulation
+  - government-contracting
+  - govtech
+  - offline-first
+  - provenance
+  - public-procurement
+  - receipts
+  - replay
+  - section-508
+  - software-acceptance
+  - supply-chain-security

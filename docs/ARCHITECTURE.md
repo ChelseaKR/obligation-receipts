@@ -41,6 +41,18 @@ human-approved manifest                                   │
 
 ## Components
 
+All thirteen modules of `src/obligation_receipts/` appear below. A component
+list that quietly omits one describes a different program than the one that
+ships, and `canonical.py` and `exit_codes.py` — the strict-JSON seam every
+digest passes through and the exit contract every command draws from — were
+both missing from a list that reads as exhaustive.
+
+- `__init__.py` is the public API surface: `load_manifest`,
+  `evaluate_manifest`, and `verify_receipt`, and nothing else.
+- `canonical.py` is the single strict-JSON and hashing seam. It rejects
+  duplicate keys, non-finite numbers, and structures beyond 64 levels or
+  100,000 nodes, serializes the one canonical byte form every digest is taken
+  over, and provides the SHA-256 helpers.
 - `manifest.py` parses a closed TOML shape, validates type/classification
   compatibility, re-hashes the approved source, normalizes the manifest, and
   issues its digest.
@@ -61,7 +73,13 @@ human-approved manifest                                   │
 - `receipt.py` creates the deterministic payload, keeps time in a separate
   envelope, writes through a collision-resistant atomic replacement, and
   verifies the closed payload schema, result algebra, counts, and integrity.
-- `cli.py` exposes validate, evaluate, and verify/replay.
+- `exit_codes.py` is the single exit-code contract. One band serves every
+  command, and code 2 is reserved for "no result document was produced" so an
+  evaluated negative outcome is never confused with a tool or input error.
+- `cli.py` exposes seven subcommands: `validate`, `evaluate`, `evidence-plan`,
+  `verify-evidence-plan`, `check-evidence`, `verify` (with optional replay),
+  and `research-metrics`. It parses arguments, delegates, prints one canonical
+  JSON line, and maps the outcome onto `exit_codes.py`.
 - `plan.py` projects declared collection instructions into a closed,
   manifest-bound checklist. Its default profile redacts local paths, locators,
   and free-text reasons; it never opens evidence.

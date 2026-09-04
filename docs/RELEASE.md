@@ -14,7 +14,8 @@ GitHub build provenance before uploading the candidate artifact.
 Public or package-registry publication remains blocked until all of these
 exist. In place:
 
-- initialized version control and a hosted private repository;
+- initialized version control and a hosted public repository (`gh repo view
+  --json isPrivate` returns false);
 - protected main and tag rulesets with required checks (`protect-tags`
   additionally requires signed, immutable tags — deletion and rewrite of a
   matching ref are rejected by GitHub, not just by CI);
@@ -22,8 +23,10 @@ exist. In place:
   and a keyless cosign signature over `dist/SHA256SUMS` are both issued per
   candidate);
 - incident labels (`security`, `incident`); and
-- a security contact route (private-advisory reporting through the repository
-  Security tab; see `SECURITY.md`).
+- a security contact route: private vulnerability reporting is enabled, so the
+  repository Security tab accepts a private advisory. It is confirmable rather
+  than asserted — `GET /repos/ChelseaKR/obligation-receipts/private-vulnerability-reporting`
+  returns `{"enabled": true}`. See `SECURITY.md`.
 
 Still required:
 
@@ -36,9 +39,6 @@ Still required:
   maintainer's GitHub account as a *signing* key (github.com/settings/keys)
   so pushed tags carry GitHub's own Verified badge, not only CI-internal
   verification;
-- private vulnerability reporting — GitHub's toggle for this could not be
-  confirmed enabled via the API on this account/plan; needs manual
-  confirmation in Settings → Security;
 - exact package URLs — resolve once a package is actually published to a
   registry; SECURITY.md commits in advance to the README/release notes as the
   only canonical source; and

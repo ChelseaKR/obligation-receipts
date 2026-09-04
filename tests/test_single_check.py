@@ -570,3 +570,45 @@ def test_result_rejects_a_non_finite_number(example_manifest: Path) -> None:
     _set_payload(document, "declared_evidence_count", float("inf"))
     with pytest.raises(EvidenceCheckError, match="not bounded JSON"):
         verify_evidence_check(document)
+
+
+@pytest.mark.parametrize(
+    ("location", "key"),
+    [
+        ("document", "payload_sha256"),
+        ("payload", "manifest_sha256"),
+        ("payload", "source_sha256"),
+        ("evidence", "artifact_sha256"),
+    ],
+)
+def test_every_check_digest_field_must_be_lowercase(
+    example_manifest: Path,
+    location: str,
+    key: str,
+) -> None:
+    """The check verifier only format-checks its digests, so the pattern is the rule.
+
+    Relaxing `_SHA256_PATTERN` to case-insensitive survived the whole suite.
+    `artifact_sha256` is the one that matters most here: it is the content
+    identifier a reader uses to say "this result is about that byte sequence",
+    and re-spelling it in upper case yields a document that is byte-different,
+    digests differently, still verifies, and still claims to be about the same
+    artifact. Two canonically-different results for one check is exactly what a
+    content identifier must not permit.
+    """
+    document = _checked(example_manifest)
+    holder = (
+        document
+        if location == "document"
+        else _payload(document)
+        if location == "payload"
+        else _evidence(document)
+    )
+    original = holder[key]
+    assert isinstance(original, str)
+    assert original != original.upper()
+    holder[key] = original.upper()
+    if location != "document":
+        _rehash(document)
+    with pytest.raises(EvidenceCheckError, match="must be a lowercase SHA-256 digest"):
+        verify_evidence_check(document)

@@ -24,7 +24,11 @@ from obligation_receipts.models import (
     OverallStatus,
     ResultStatus,
 )
-from obligation_receipts.paths import BoundedPathError, read_bounded_file
+from obligation_receipts.paths import (
+    BoundedPathError,
+    read_bounded_file,
+    resolve_evidence_root,
+)
 from obligation_receipts.pointer import resolve
 
 _MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
@@ -77,23 +81,23 @@ def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResu
         BoundedPathError,
         FileNotFoundError,
         OSError,
-    ) as exc:
+    ):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.MISSING,
             artifact_sha256=None,
-            detail=f"artifact unavailable or invalid: {type(exc).__name__}",
+            detail="artifact unavailable or invalid",
         )
     try:
         document = loads_json_strict(data)
-    except (RecursionError, StrictJsonError, ValueError) as exc:
+    except (RecursionError, StrictJsonError, ValueError):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.MISSING,
             artifact_sha256=artifact_sha256,
-            detail=f"artifact unavailable or invalid: {type(exc).__name__}",
+            detail="artifact unavailable or invalid",
         )
     if spec.pointer is None or spec.operator is None:
         return EvidenceResult(
@@ -149,23 +153,23 @@ def _evaluate_attestation(
         BoundedPathError,
         FileNotFoundError,
         OSError,
-    ) as exc:
+    ):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.REVIEW_REQUIRED,
             artifact_sha256=None,
-            detail=f"attestation unavailable or invalid: {type(exc).__name__}",
+            detail="attestation unavailable or invalid",
         )
     try:
         raw = loads_json_strict(data)
-    except (RecursionError, StrictJsonError, ValueError) as exc:
+    except (RecursionError, StrictJsonError, ValueError):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.REVIEW_REQUIRED,
             artifact_sha256=artifact_sha256,
-            detail=f"attestation unavailable or invalid: {type(exc).__name__}",
+            detail="attestation unavailable or invalid",
         )
     attestation = raw if isinstance(raw, dict) else None
     if attestation is None:
@@ -212,7 +216,7 @@ def evaluate_declared_evidence(
     evidence_root: Path,
 ) -> EvidenceResult:
     """Evaluate exactly one already-declared evidence item."""
-    resolved_root = evidence_root.resolve(strict=True)
+    resolved_root = resolve_evidence_root(evidence_root)
     if spec.kind is EvidenceKind.JSON_ASSERTION:
         return _evaluate_assertion(spec, resolved_root)
     return _evaluate_attestation(spec, obligation, manifest, resolved_root)
@@ -271,7 +275,7 @@ def _overall_status(results: tuple[ObligationResult, ...]) -> OverallStatus:
 
 def evaluate_manifest(manifest: Manifest, evidence_root: Path) -> Evaluation:
     """Evaluate every obligation without network access or arbitrary execution."""
-    resolved_root = evidence_root.resolve(strict=True)
+    resolved_root = resolve_evidence_root(evidence_root)
     results = tuple(
         _evaluate_obligation(obligation, manifest, resolved_root)
         for obligation in manifest.obligations

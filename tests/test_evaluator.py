@@ -1,11 +1,12 @@
 import json
 from dataclasses import replace
 from pathlib import Path
+from shutil import copytree, rmtree
 from typing import cast
 
 import pytest
 
-from obligation_receipts.canonical import sha256_bytes
+from obligation_receipts.canonical import canonical_json_bytes, sha256_bytes
 from obligation_receipts.evaluator import (
     _compare,
     _evaluate_assertion,
@@ -138,6 +139,46 @@ def test_attestation_rejects_whitespace_only_required_field(copied_example: Path
         copied_example / "evidence",
     )
     assert evaluation.results[1].status is ResultStatus.REVIEW_REQUIRED
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_value"),
+    [
+        ("contract_id", "some-other-contract"),
+        ("contract_version", "0.9"),
+        ("obligation_id", "a3-external-acr"),
+        ("schema_version", "obligation-receipts/attestation/v0.2"),
+    ],
+)
+def test_attestation_requires_every_identity_binding_independently(
+    copied_example: Path,
+    field: str,
+    wrong_value: str,
+) -> None:
+    """Each identity binding must be load-bearing on its own.
+
+    `manifest_sha256` is deliberately left correct in every case, so an
+    attestation that is content-bound to this exact manifest still cannot be
+    replayed against a different contract, a different version of it, a
+    different obligation, or read as a format it does not claim to be. Without
+    a case per field, deleting any one of these four comparisons left the whole
+    suite green: the remaining bindings covered for the deleted one.
+
+    `schema_version` is the sharpest of the four. An attestation self-labelled
+    `.../attestation/v0.2` announces that it is a different format; accepting
+    it means evaluating unknown fields under v0.1 rules and reporting `pass`.
+    """
+    path = copied_example / "evidence" / "manual" / "keyboard-review.json"
+    attestation = json.loads(path.read_text(encoding="utf-8"))
+    assert attestation[field] != wrong_value
+    attestation[field] = wrong_value
+    _write_json(path, attestation)
+    manifest = load_manifest(copied_example / "obligations.toml")
+    assert attestation["manifest_sha256"] == manifest.manifest_sha256
+
+    evaluation = evaluate_manifest(manifest, copied_example / "evidence")
+    assert evaluation.results[1].status is ResultStatus.REVIEW_REQUIRED
+    assert evaluation.overall_status is OverallStatus.INCOMPLETE
 
 
 def test_one_attestation_cannot_satisfy_two_declared_evidence_ids(
@@ -391,3 +432,34 @@ def test_compare_refuses_operators_it_does_not_answer(operator: str, value: obje
     returns the fail-closed default rather than inventing an answer.
     """
     assert _compare(cast(JsonValue, value), operator, cast(JsonValue, value)) is False
+
+
+def test_payload_digest_is_independent_of_how_the_artifact_became_unreadable(
+    tmp_path: Path, example_root: Path
+) -> None:
+    """One `missing` verdict must digest one way, whatever the operating system raised.
+
+    The payload is the replay contract. If the cause reaches the payload, a
+    receipt written where an artifact is absent fails replay where the same
+    artifact is merely unreachable, and `verify` reports that environment
+    difference as an integrity finding about the receipt.
+    """
+    digests = set()
+    for cause in ("absent", "unreadable_parent"):
+        root = tmp_path / cause
+        copytree(example_root, root)
+        artifact = root / "evidence" / "automated" / "axe-summary.json"
+        if cause == "absent":
+            artifact.unlink()
+        else:
+            rmtree(artifact.parent)
+            artifact.parent.write_text("not a directory", encoding="utf-8")
+
+        evaluation = evaluate_manifest(load_manifest(root / "obligations.toml"), root / "evidence")
+        assert evaluation.results[0].evidence[0].status is ResultStatus.MISSING
+        digests.add(sha256_bytes(canonical_json_bytes(evaluation.payload())))
+
+    assert len(digests) == 1, (
+        "the payload digest depends on which OSError the filesystem raised; "
+        "receipts are no longer replayable across environments"
+    )

@@ -1,8 +1,9 @@
 """RFC 6901 JSON pointer syntax and resolution.
 
 One definition, used by manifest loading, evidence-plan validation, and
-evaluation, so those three commands can never disagree about whether a pointer
-is well formed. Before this module existed, `manifest.py` checked only the
+evaluation, so those three call sites can never disagree about whether a
+pointer is well formed. They are call sites, not commands: six of the seven
+subcommands can load a manifest. Before this module existed, `manifest.py` checked only the
 leading `/`, `plan.py` carried a partial copy that checked escape correctness
 alone, and `evaluator.py` held the only complete implementation -- reached far
 too late, after a manifest defect had already become an observed `fail`.

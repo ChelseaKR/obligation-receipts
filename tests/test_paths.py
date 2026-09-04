@@ -1,3 +1,5 @@
+import errno
+import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +10,7 @@ import obligation_receipts.paths as paths
 from obligation_receipts.paths import (
     BoundedPathError,
     hash_bounded_file,
+    read_bounded_file,
     read_regular_file,
     resolve_bounded_file,
 )
@@ -114,6 +117,76 @@ def test_hash_bounded_file_rejects_a_special_file_without_blocking(
     monkeypatch.setattr(paths, "resolve_bounded_file", lambda root, relative: fifo)
     with pytest.raises(BoundedPathError, match="regular file"):
         hash_bounded_file(tmp_path, "source.txt", max_bytes=1024)
+
+
+@pytest.mark.parametrize(
+    "reader",
+    [read_bounded_file, hash_bounded_file],
+    ids=["read_bounded_file", "hash_bounded_file"],
+)
+def test_bounded_readers_refuse_a_symlink_swapped_in_after_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reader: Callable[..., object],
+) -> None:
+    """`O_NOFOLLOW` closes the window between resolving a name and opening it.
+
+    `resolve_bounded_file` decides on a name: it resolves links, confirms the
+    result is a regular file inside the root, and hands the path back. Both
+    readers then `os.open` that path -- a second name lookup, on a filesystem
+    anyone with write access to the directory can change in between. Planting a
+    symlink there after the check is what `O_NOFOLLOW` refuses.
+
+    Nothing simulated that window, so removing `O_NOFOLLOW` from either reader
+    left the suite green: every other symlink test hands the link to
+    `resolve_bounded_file`, which resolves it and never reaches the open flags.
+    Monkeypatching the resolver is the only way to reach them, the same
+    technique the FIFO test above uses for the second `S_ISREG` check.
+
+    The errno assertion is the point of the test: `OSError` alone would also be
+    satisfied by an unrelated failure, so it would not prove `O_NOFOLLOW` is
+    what refused. Linux raises `ELOOP`; the BSDs, including macOS, may raise
+    `EMLINK`.
+    """
+    target = tmp_path / "target.json"
+    target.write_bytes(b'{"planted":true}')
+    link = tmp_path / "artifact.json"
+    os.symlink(target, link)
+    monkeypatch.setattr(paths, "resolve_bounded_file", lambda root, relative: link)
+    with pytest.raises(OSError) as raised:
+        reader(tmp_path, "artifact.json", max_bytes=1024)
+    assert raised.value.errno in {errno.ELOOP, errno.EMLINK}
+
+
+def test_read_regular_file_accepts_a_file_of_exactly_the_cap(tmp_path: Path) -> None:
+    """A file of exactly the cap is inside the cap, and must be read.
+
+    Every other cap test uses `limit + 1`, so the boundary itself was never
+    exercised and both of this reader's `> max_bytes` comparisons -- the
+    `st_size` pre-check and the `len(data)` post-check -- could become `>=`
+    unnoticed. That off-by-one is not a tightened limit, it is a wrong answer:
+    a valid 2 MiB evidence artifact would be refused, the evaluator would
+    record `missing`, and a tool whose whole contract is fail-closed reporting
+    would say it did not observe evidence that is sitting there and is within
+    its own documented bound.
+    """
+    payload = b"x" * 4096
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(payload)
+    assert read_regular_file(artifact, max_bytes=4096, no_follow=True) == payload
+
+
+def test_hash_bounded_file_accepts_a_file_of_exactly_the_cap(tmp_path: Path) -> None:
+    """The hashing reader carries the same boundary, and its own streaming counter.
+
+    See `test_read_regular_file_accepts_a_file_of_exactly_the_cap`: this reader
+    repeats the `st_size` comparison and adds `total > max_bytes` over the
+    stream, so it can drift to `>=` in two more places.
+    """
+    payload = b"x" * 4096
+    (tmp_path / "artifact.json").write_bytes(payload)
+    _, digest = hash_bounded_file(tmp_path, "artifact.json", max_bytes=4096)
+    assert digest == hashlib.sha256(payload).hexdigest()
 
 
 def _stale_size_fstat(size: int) -> Callable[[int], os.stat_result]:

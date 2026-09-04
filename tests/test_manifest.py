@@ -343,6 +343,31 @@ def test_accepts_an_optional_reason_alongside_declared_evidence(copied_example: 
     assert load_manifest(manifest_path).obligations[0].reason == "Scoped to the automated sweep."
 
 
+def test_rejects_an_uppercase_source_digest_as_a_format_error(copied_example: Path) -> None:
+    """`_SHA256_PATTERN` must stay case-sensitive, and be seen to.
+
+    Making the pattern case-insensitive survived the whole suite here. The
+    manifest loader half-protects itself -- it compares the declared digest
+    against a lowercase `hexdigest()`, so an uppercase spelling is still
+    refused -- but it is refused for the wrong reason, reported as
+    "source digest does not match the approved manifest" with the actual
+    digest quoted back. That tells a reviewer their contract source was
+    modified when it was not, and sends them looking for a tampered file.
+
+    Asserting the specific message is what holds the pattern: an uppercase
+    digest must be rejected as a malformed field, before any comparison.
+    """
+    manifest_path = copied_example / "obligations.toml"
+    prefix = 'source_sha256 = "'
+    content = manifest_path.read_text(encoding="utf-8")
+    start = content.index(prefix) + len(prefix)
+    digest = content[start : content.index('"', start)]
+    assert digest != digest.upper()
+    _replace(manifest_path, digest, digest.upper())
+    with pytest.raises(ManifestError, match="must be a lowercase SHA-256 digest"):
+        load_manifest(manifest_path)
+
+
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is unavailable")
 def test_rejects_a_manifest_that_is_not_a_regular_file(tmp_path: Path) -> None:
     """#33: the generic (non-oversize) BoundedPathError branch of load_manifest.
