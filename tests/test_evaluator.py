@@ -1,11 +1,12 @@
 import json
 from dataclasses import replace
 from pathlib import Path
+from shutil import copytree, rmtree
 from typing import cast
 
 import pytest
 
-from obligation_receipts.canonical import sha256_bytes
+from obligation_receipts.canonical import canonical_json_bytes, sha256_bytes
 from obligation_receipts.evaluator import (
     _compare,
     _evaluate_assertion,
@@ -391,3 +392,34 @@ def test_compare_refuses_operators_it_does_not_answer(operator: str, value: obje
     returns the fail-closed default rather than inventing an answer.
     """
     assert _compare(cast(JsonValue, value), operator, cast(JsonValue, value)) is False
+
+
+def test_payload_digest_is_independent_of_how_the_artifact_became_unreadable(
+    tmp_path: Path, example_root: Path
+) -> None:
+    """One `missing` verdict must digest one way, whatever the operating system raised.
+
+    The payload is the replay contract. If the cause reaches the payload, a
+    receipt written where an artifact is absent fails replay where the same
+    artifact is merely unreachable, and `verify` reports that environment
+    difference as an integrity finding about the receipt.
+    """
+    digests = set()
+    for cause in ("absent", "unreadable_parent"):
+        root = tmp_path / cause
+        copytree(example_root, root)
+        artifact = root / "evidence" / "automated" / "axe-summary.json"
+        if cause == "absent":
+            artifact.unlink()
+        else:
+            rmtree(artifact.parent)
+            artifact.parent.write_text("not a directory", encoding="utf-8")
+
+        evaluation = evaluate_manifest(load_manifest(root / "obligations.toml"), root / "evidence")
+        assert evaluation.results[0].evidence[0].status is ResultStatus.MISSING
+        digests.add(sha256_bytes(canonical_json_bytes(evaluation.payload())))
+
+    assert len(digests) == 1, (
+        "the payload digest depends on which OSError the filesystem raised; "
+        "receipts are no longer replayable across environments"
+    )

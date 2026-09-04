@@ -77,23 +77,23 @@ def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResu
         BoundedPathError,
         FileNotFoundError,
         OSError,
-    ) as exc:
+    ):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.MISSING,
             artifact_sha256=None,
-            detail=f"artifact unavailable or invalid: {type(exc).__name__}",
+            detail="artifact unavailable or invalid",
         )
     try:
         document = loads_json_strict(data)
-    except (RecursionError, StrictJsonError, ValueError) as exc:
+    except (RecursionError, StrictJsonError, ValueError):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.MISSING,
             artifact_sha256=artifact_sha256,
-            detail=f"artifact unavailable or invalid: {type(exc).__name__}",
+            detail="artifact unavailable or invalid",
         )
     if spec.pointer is None or spec.operator is None:
         return EvidenceResult(
@@ -149,23 +149,23 @@ def _evaluate_attestation(
         BoundedPathError,
         FileNotFoundError,
         OSError,
-    ) as exc:
+    ):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.REVIEW_REQUIRED,
             artifact_sha256=None,
-            detail=f"attestation unavailable or invalid: {type(exc).__name__}",
+            detail="attestation unavailable or invalid",
         )
     try:
         raw = loads_json_strict(data)
-    except (RecursionError, StrictJsonError, ValueError) as exc:
+    except (RecursionError, StrictJsonError, ValueError):
         return EvidenceResult(
             evidence_id=spec.evidence_id,
             kind=spec.kind,
             status=ResultStatus.REVIEW_REQUIRED,
             artifact_sha256=artifact_sha256,
-            detail=f"attestation unavailable or invalid: {type(exc).__name__}",
+            detail="attestation unavailable or invalid",
         )
     attestation = raw if isinstance(raw, dict) else None
     if attestation is None:
