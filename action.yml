@@ -78,6 +78,15 @@ runs:
     # Install into a dedicated venv rather than the runner's system Python,
     # which is externally managed (PEP 668) on current ubuntu images. The env
     # indirection keeps the ref out of shell-template interpolation.
+    #
+    # The venv's bin is deliberately NOT appended to `GITHUB_PATH`. zizmor's
+    # `github-env` audit flags a write to that file as a code-execution risk,
+    # and it is right that the pattern deserves the scrutiny: `GITHUB_PATH`
+    # persists into every later step of the CONSUMER's job, so this action
+    # would be silently changing how their subsequent steps resolve commands.
+    # The next step invokes the CLI at its absolute path instead, which needs
+    # no PATH mutation at all -- a narrower action and one less finding to
+    # waive.
     - name: Install obligation-receipts
       shell: bash
       env:
@@ -88,7 +97,6 @@ runs:
         uv pip install \
           --python "${RUNNER_TEMP}/obligation-receipts-venv/bin/python" \
           "obligation-receipts @ git+https://github.com/ChelseaKR/obligation-receipts@${OBLIGATION_RECEIPTS_REF}"
-        echo "${RUNNER_TEMP}/obligation-receipts-venv/bin" >> "$GITHUB_PATH"
 
     - name: Run obligation-receipts
       id: run
@@ -115,6 +123,7 @@ runs:
             ;;
         esac
 
+        cli="${RUNNER_TEMP}/obligation-receipts-venv/bin/obligation-receipts"
         result="${RUNNER_TEMP}/obligation-receipts-result.json"
         case "$INPUT_MODE" in
           evaluate)
@@ -122,13 +131,13 @@ runs:
               echo "::error::mode 'evaluate' requires both 'manifest' and 'evidence-root'"
               exit 2
             fi
-            obligation-receipts evaluate "$INPUT_MANIFEST" \
+            "$cli" evaluate "$INPUT_MANIFEST" \
               --evidence-root "$INPUT_EVIDENCE_ROOT" \
               --out "$INPUT_RECEIPT" > "$result"
             code=$?
             ;;
           verify)
-            obligation-receipts verify "$INPUT_RECEIPT" > "$result"
+            "$cli" verify "$INPUT_RECEIPT" > "$result"
             code=$?
             ;;
           *)

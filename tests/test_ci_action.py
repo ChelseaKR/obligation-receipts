@@ -260,3 +260,22 @@ def test_a_malformed_manifest_is_an_input_error_not_a_rejection(tmp_path: Path) 
     code = main(["validate", str(broken)])
     assert code == INPUT_ERROR
     assert code != 1, "an unreadable manifest must never read as an evaluated failure"
+
+
+def test_the_action_does_not_write_to_github_path() -> None:
+    """`GITHUB_PATH` persists into every later step of the CONSUMER's job.
+
+    zizmor's `github-env` audit flags a write there as a code-execution risk,
+    and the pattern deserves it: an action that appends to `GITHUB_PATH` is
+    silently changing how the calling job resolves commands after it returns.
+    The CLI is invoked at its absolute path instead, so there is nothing to
+    waive and nothing leaks out of the action.
+    """
+    assert "GITHUB_PATH" not in _run_step_script()
+    install = _ACTION_TEXT.split("name: Install obligation-receipts", 1)[1].split("- name:", 1)[0]
+    assert "GITHUB_PATH" not in install
+    # And the CLI really is reached by absolute path, not by bare name.
+    script = _run_step_script()
+    assert 'cli="${RUNNER_TEMP}/obligation-receipts-venv/bin/obligation-receipts"' in script
+    assert '"$cli" evaluate' in script
+    assert '"$cli" verify' in script
