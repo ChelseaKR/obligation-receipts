@@ -1,0 +1,25 @@
+# Hooks this repository provides to OTHER repositories.
+#
+# Distinct from `.pre-commit-config.yaml`, which lists the hooks this
+# repository runs on itself. A consumer adds:
+#
+#     - repo: https://github.com/ChelseaKR/obligation-receipts
+#       rev: v0.1.0
+#       hooks:
+#         - id: obligation-receipts-validate
+#
+# `validate` loads a manifest, re-hashes its declared source, and refuses an
+# authoring defect -- a malformed RFC 6901 pointer, an unknown operator, a
+# classification that does not match its evidence kind -- at load time, before
+# it can reach an evaluation and be reported as an observed failure. That is
+# exactly the check worth running at commit time: it is fast, offline, needs no
+# evidence root, and it never evaluates anything.
+- id: obligation-receipts-validate
+  name: validate obligation manifests
+  description: >-
+    Load and source-bind every changed obligations manifest, refusing authoring
+    defects before they can reach an evaluation.
+  entry: obligation-receipts validate
+  language: python
+  files: (^|/)obligations\.toml$
+  pass_filenames: true

@@ -1,0 +1,197 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable composite action: evaluate acceptance obligations, or verify a
+# receipt, in CI -- honouring this project's documented exit-code contract.
+#
+# The contract is the point. `src/obligation_receipts/exit_codes.py` reserves
+# code 2 for "no result document was produced", so an evaluated negative
+# outcome is never confused with a tool or input error. A CI integration that
+# collapsed both into "the job failed" would throw away the one distinction the
+# band exists to make, so this action maps them to different annotations and
+# treats code 2 as an error regardless of `fail-on`.
+#
+# Downstream usage lives in docs/CI-ACTION.md.
+name: "Obligation Receipts"
+description: "Evaluate acceptance obligations or verify a receipt, honouring the exit-code contract."
+branding:
+  icon: "check-square"
+  color: "blue"
+
+inputs:
+  mode:
+    description: "`evaluate` a manifest against local evidence, or `verify` an existing receipt."
+    required: false
+    default: "evaluate"
+  manifest:
+    description: "Path to the obligations manifest (required when mode is `evaluate`)."
+    required: false
+    default: ""
+  evidence-root:
+    description: "Directory holding the declared evidence (required when mode is `evaluate`)."
+    required: false
+    default: ""
+  receipt:
+    description: >-
+      When mode is `evaluate`, where to write the receipt. When mode is
+      `verify`, the receipt to verify.
+    required: false
+    default: "receipt.json"
+  fail-on:
+    description: >-
+      Which evaluated outcomes fail the job: `rejected` (code 1 only),
+      `incomplete` (codes 1 and 3), or `any` (codes 1, 3 and 4). An input error
+      (code 2) always fails, because no result document was produced.
+    required: false
+    default: "rejected"
+  version:
+    description: >-
+      Git ref (tag or commit SHA) of ChelseaKR/obligation-receipts to install.
+      Pin to a tag or a commit SHA for reproducible, supply-chain-hardened runs.
+    required: false
+    default: "v0.1.0"
+  upload-receipt:
+    description: "Upload the receipt as a workflow artifact (mode `evaluate` only)."
+    required: false
+    default: "true"
+
+outputs:
+  exit-code:
+    description: "The CLI's exit code, from the documented band {0,1,2,3,4}."
+    value: ${{ steps.run.outputs.exit-code }}
+  status:
+    description: "The band's name for that code: ok, rejected, input_error, not_observed, review_required."
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    # Third-party actions are pinned to a commit SHA with a version comment,
+    # matching the convention in .github/workflows/ci.yml. The digest-pin gate
+    # in tests/test_supply_chain.py reads this file too, so an unpinned action
+    # added here fails the build rather than escaping the check by living
+    # outside .github/workflows/.
+    - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        version: "0.11.29"
+        python-version: "3.12"
+
+    # Install into a dedicated venv rather than the runner's system Python,
+    # which is externally managed (PEP 668) on current ubuntu images. The env
+    # indirection keeps the ref out of shell-template interpolation.
+    #
+    # The venv's bin is deliberately NOT appended to `GITHUB_PATH`. zizmor's
+    # `github-env` audit flags a write to that file as a code-execution risk,
+    # and it is right that the pattern deserves the scrutiny: `GITHUB_PATH`
+    # persists into every later step of the CONSUMER's job, so this action
+    # would be silently changing how their subsequent steps resolve commands.
+    # The next step invokes the CLI at its absolute path instead, which needs
+    # no PATH mutation at all -- a narrower action and one less finding to
+    # waive.
+    - name: Install obligation-receipts
+      shell: bash
+      env:
+        OBLIGATION_RECEIPTS_REF: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        uv venv "${RUNNER_TEMP}/obligation-receipts-venv"
+        uv pip install \
+          --python "${RUNNER_TEMP}/obligation-receipts-venv/bin/python" \
+          "obligation-receipts @ git+https://github.com/ChelseaKR/obligation-receipts@${OBLIGATION_RECEIPTS_REF}"
+
+    - name: Run obligation-receipts
+      id: run
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_MANIFEST: ${{ inputs.manifest }}
+        INPUT_EVIDENCE_ROOT: ${{ inputs.evidence-root }}
+        INPUT_RECEIPT: ${{ inputs.receipt }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        # NOT `set -e`. The CLI's nonzero exits are the result this action
+        # exists to read; aborting on them would discard the distinction
+        # between an evaluated outcome and a tool failure before it is mapped.
+        set -uo pipefail
+
+        case "$INPUT_FAIL_ON" in
+          rejected) blocking="1" ;;
+          incomplete) blocking="1 3" ;;
+          any) blocking="1 3 4" ;;
+          *)
+            echo "::error::fail-on must be one of: rejected, incomplete, any (got '${INPUT_FAIL_ON}')"
+            exit 2
+            ;;
+        esac
+
+        cli="${RUNNER_TEMP}/obligation-receipts-venv/bin/obligation-receipts"
+        result="${RUNNER_TEMP}/obligation-receipts-result.json"
+        case "$INPUT_MODE" in
+          evaluate)
+            if [ -z "$INPUT_MANIFEST" ] || [ -z "$INPUT_EVIDENCE_ROOT" ]; then
+              echo "::error::mode 'evaluate' requires both 'manifest' and 'evidence-root'"
+              exit 2
+            fi
+            "$cli" evaluate "$INPUT_MANIFEST" \
+              --evidence-root "$INPUT_EVIDENCE_ROOT" \
+              --out "$INPUT_RECEIPT" > "$result"
+            code=$?
+            ;;
+          verify)
+            "$cli" verify "$INPUT_RECEIPT" > "$result"
+            code=$?
+            ;;
+          *)
+            echo "::error::mode must be one of: evaluate, verify (got '${INPUT_MODE}')"
+            exit 2
+            ;;
+        esac
+
+        case "$code" in
+          0) status="ok" ;;
+          1) status="rejected" ;;
+          2) status="input_error" ;;
+          3) status="not_observed" ;;
+          4) status="review_required" ;;
+          *) status="unknown" ;;
+        esac
+        echo "exit-code=${code}" >> "$GITHUB_OUTPUT"
+        echo "status=${status}" >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### obligation-receipts (\`${INPUT_MODE}\`)"
+          echo
+          echo "Exit code \`${code}\` — \`${status}\`."
+          echo
+          if [ -s "$result" ]; then
+            echo '```json'
+            cat "$result"
+            echo '```'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Code 2 means no result document was produced. That is a tool or input
+        # error, never an evaluated outcome, so `fail-on` does not apply to it:
+        # letting `fail-on: rejected` pass an unreadable manifest would report
+        # "nothing was rejected" about a run that never evaluated anything.
+        if [ "$code" = "2" ]; then
+          echo "::error::obligation-receipts could not produce a result document (exit 2)."
+          exit 2
+        fi
+        if [ "$code" = "0" ]; then
+          echo "::notice::obligation-receipts: ${status}."
+          exit 0
+        fi
+        for blocked in $blocking; do
+          if [ "$code" = "$blocked" ]; then
+            echo "::error::obligation-receipts: ${status} (exit ${code}), which 'fail-on: ${INPUT_FAIL_ON}' treats as failing."
+            exit "$code"
+          fi
+        done
+        echo "::warning::obligation-receipts: ${status} (exit ${code}), not blocking under 'fail-on: ${INPUT_FAIL_ON}'."
+
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      if: ${{ always() && inputs.mode == 'evaluate' && inputs.upload-receipt == 'true' }}
+      with:
+        name: obligation-receipt
+        path: ${{ inputs.receipt }}
+        if-no-files-found: warn
