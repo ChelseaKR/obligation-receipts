@@ -415,9 +415,31 @@ _JOB_HEADER = re.compile(r"^  (?P<name>[A-Za-z0-9_.-]+):\s*$")
 _JOB_TIMEOUT = re.compile(r"^    timeout-minutes:\s*(?P<minutes>\d+)\b", re.M)
 _JOB_RUNS_ON = re.compile(r"^    runs-on:", re.M)
 
-#: Generous by an order of magnitude -- the whole suite runs in seconds and the slowest
-#: job is a couple of minutes -- and still two orders below GitHub's 6-hour default.
-_MAX_TIMEOUT_MINUTES = 30
+#: What this ceiling is protecting against, stated so the number can be argued with.
+#:
+#: This repository is public and has forks, and `verify` runs `pytest` over a pull
+#: request's code on a hosted runner. Without a cap a job inherits GitHub's 6-hour
+#: default, so how long a fork's code holds a runner would be the fork's decision. The
+#: ceiling exists to stop a runaway job, and only that. It is not a performance budget,
+#: and it is not a statement that a slower job would be wrong.
+#:
+#: A ceiling that sits just above the largest value anyone has declared is a pin wearing
+#: a ceiling's clothes: the next legitimate raise fails the gate before it can reach the
+#: workflow, and the message reads as if the number were policy. 30 was in that shape --
+#: only ten minutes above codeql.yml's declared 20, which is one matrix expansion or one
+#: added language away from a genuine 30-45 minute analysis.
+#:
+#: Measured 2026-09-06 over this workflow's last 12 successful runs: every job finished
+#: in under a minute (slowest observed: `package`, 44s; `verify` 15-21s; the four
+#: scanners 5-19s). The largest cap anyone has declared anywhere is 20 minutes. 60 is
+#: therefore roughly eighty times the slowest job actually observed and three times the
+#: largest declared cap, while still bounding a hang six times tighter than GitHub's
+#: default -- far enough above real runtimes that only a runaway trips it, close enough
+#: to the default to still be a bound.
+#:
+#: Raising a job past this needs the number here argued with and changed, which is the
+#: point: it should take a decision, not an edit nobody reads.
+_MAX_TIMEOUT_MINUTES = 60
 
 
 def _jobs(text: str) -> dict[str, list[str]]:
@@ -496,8 +518,11 @@ def test_every_job_that_holds_a_runner_declares_how_long_it_may_hold_it() -> Non
             and not 1 <= int(match.group("minutes")) <= _MAX_TIMEOUT_MINUTES
         }
         assert not excessive, (
-            f"{workflow.name}: {excessive} exceed the {_MAX_TIMEOUT_MINUTES}-minute ceiling. "
-            "A timeout longer than any run has ever needed is a declaration, not a bound."
+            f"{workflow.name}: {excessive} fall outside 1-{_MAX_TIMEOUT_MINUTES} minutes. "
+            "The ceiling exists to stop a runaway job holding a hosted runner on a public "
+            "repository with forks, not to budget performance. If a job genuinely needs "
+            "longer, raise _MAX_TIMEOUT_MINUTES with the measurement that justifies it -- do "
+            "not read this number as policy."
         )
 
 
