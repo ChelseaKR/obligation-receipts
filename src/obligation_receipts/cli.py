@@ -26,6 +26,11 @@ from obligation_receipts.plan import (
     verify_evidence_plan,
     write_evidence_plan,
 )
+from obligation_receipts.progress import (
+    PlanStatusError,
+    build_plan_status,
+)
+from obligation_receipts.progress import render_markdown as render_status_markdown
 from obligation_receipts.receipt import (
     ReceiptError,
     build_receipt,
@@ -83,6 +88,24 @@ def _parser() -> argparse.ArgumentParser:
     check_evidence.add_argument("manifest", type=Path)
     check_evidence.add_argument("evidence_id")
     check_evidence.add_argument("--evidence-root", type=Path, required=True)
+
+    plan_status = subparsers.add_parser(
+        "plan-status",
+        help="report evidence-collection progress against a plan, evaluating nothing",
+    )
+    plan_status.add_argument("plan", type=Path)
+    plan_status.add_argument("--manifest", type=Path, required=True)
+    plan_status.add_argument("--evidence-root", type=Path, required=True)
+    plan_status.add_argument(
+        "--include-local-details",
+        action="store_true",
+        help="include declared artifact paths, which can name a client or contract",
+    )
+    plan_status.add_argument(
+        "--markdown",
+        action="store_true",
+        help="write a Markdown rendering to stdout instead of one canonical JSON line",
+    )
 
     audit_root = subparsers.add_parser(
         "audit-evidence-root",
@@ -218,6 +241,28 @@ def _check_evidence(
     return evidence_check_exit_code(document)
 
 
+def _plan_status(
+    plan_path: Path,
+    manifest_path: Path,
+    evidence_root: Path,
+    include_local_details: bool,
+    markdown: bool,
+) -> int:
+    manifest = load_manifest(manifest_path)
+    plan = load_evidence_plan(plan_path)
+    document = build_plan_status(
+        plan,
+        manifest,
+        evidence_root,
+        include_local_details=include_local_details,
+    )
+    if markdown:
+        sys.stdout.write(render_status_markdown(document))
+        return OK
+    _print_json(document)
+    return OK
+
+
 def _audit_evidence_root(
     manifest_path: Path,
     evidence_root: Path,
@@ -267,42 +312,63 @@ def _verify(
     return OK
 
 
+def _dispatch(args: argparse.Namespace) -> int:
+    """Route one parsed command to its handler.
+
+    Split out of `main` so `main` stays the error boundary and nothing else.
+    Adding a subcommand grew `main`'s branch count past the complexity ceiling
+    `make lint` enforces, and the fix is to stop making the error handler also
+    be the router rather than to raise the ceiling.
+    """
+    if args.command == "validate":
+        return _validate(args.manifest)
+    if args.command == "evaluate":
+        return _evaluate(
+            args.manifest,
+            args.evidence_root,
+            args.out,
+            args.generated_at,
+        )
+    if args.command == "evidence-plan":
+        return _evidence_plan(args.manifest, args.out, args.include_local_details)
+    if args.command == "verify-evidence-plan":
+        return _verify_evidence_plan(args.plan, args.manifest)
+    if args.command == "check-evidence":
+        return _check_evidence(args.manifest, args.evidence_id, args.evidence_root)
+    if args.command == "plan-status":
+        return _plan_status(
+            args.plan,
+            args.manifest,
+            args.evidence_root,
+            args.include_local_details,
+            args.markdown,
+        )
+    if args.command == "audit-evidence-root":
+        return _audit_evidence_root(
+            args.manifest,
+            args.evidence_root,
+            args.include_local_details,
+            args.markdown,
+        )
+    if args.command == "verify":
+        return _verify(args.receipt, args.manifest, args.evidence_root)
+    if args.command == "research-metrics":
+        _print_json(analyze_ratings(args.rater_a, args.rater_b))
+        return OK
+    return INPUT_ERROR
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI with bounded, user-readable failures."""
     args = _parser().parse_args(argv)
     try:
-        if args.command == "validate":
-            return _validate(args.manifest)
-        if args.command == "evaluate":
-            return _evaluate(
-                args.manifest,
-                args.evidence_root,
-                args.out,
-                args.generated_at,
-            )
-        if args.command == "evidence-plan":
-            return _evidence_plan(args.manifest, args.out, args.include_local_details)
-        if args.command == "verify-evidence-plan":
-            return _verify_evidence_plan(args.plan, args.manifest)
-        if args.command == "check-evidence":
-            return _check_evidence(args.manifest, args.evidence_id, args.evidence_root)
-        if args.command == "audit-evidence-root":
-            return _audit_evidence_root(
-                args.manifest,
-                args.evidence_root,
-                args.include_local_details,
-                args.markdown,
-            )
-        if args.command == "verify":
-            return _verify(args.receipt, args.manifest, args.evidence_root)
-        if args.command == "research-metrics":
-            _print_json(analyze_ratings(args.rater_a, args.rater_b))
-            return OK
+        return _dispatch(args)
     except (
         ManifestError,
         EvidencePlanError,
         EvidenceCheckError,
         EvidenceRootAuditError,
+        PlanStatusError,
         ReceiptError,
         ResearchError,
         BoundedPathError,
