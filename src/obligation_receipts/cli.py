@@ -11,6 +11,11 @@ from pathlib import Path
 from obligation_receipts.canonical import StrictJsonError, canonical_json_bytes
 from obligation_receipts.evaluator import evaluate_manifest
 from obligation_receipts.exit_codes import INPUT_ERROR, OBSERVED_FAILURE, OK, evaluation_exit_code
+from obligation_receipts.inventory import (
+    EvidenceRootAuditError,
+    audit_evidence_root,
+    render_markdown,
+)
 from obligation_receipts.manifest import ManifestError, load_manifest
 from obligation_receipts.models import JsonValue
 from obligation_receipts.paths import BoundedPathError
@@ -78,6 +83,23 @@ def _parser() -> argparse.ArgumentParser:
     check_evidence.add_argument("manifest", type=Path)
     check_evidence.add_argument("evidence_id")
     check_evidence.add_argument("--evidence-root", type=Path, required=True)
+
+    audit_root = subparsers.add_parser(
+        "audit-evidence-root",
+        help="inventory an evidence root against a manifest, evaluating nothing",
+    )
+    audit_root.add_argument("manifest", type=Path)
+    audit_root.add_argument("--evidence-root", type=Path, required=True)
+    audit_root.add_argument(
+        "--include-local-details",
+        action="store_true",
+        help="include relative artifact paths, which can name a client or contract",
+    )
+    audit_root.add_argument(
+        "--markdown",
+        action="store_true",
+        help="write a Markdown rendering to stdout instead of one canonical JSON line",
+    )
 
     verify = subparsers.add_parser("verify", help="verify a receipt, optionally by replay")
     verify.add_argument("receipt", type=Path)
@@ -196,6 +218,24 @@ def _check_evidence(
     return evidence_check_exit_code(document)
 
 
+def _audit_evidence_root(
+    manifest_path: Path,
+    evidence_root: Path,
+    include_local_details: bool,
+    markdown: bool,
+) -> int:
+    document = audit_evidence_root(
+        load_manifest(manifest_path),
+        evidence_root,
+        include_local_details=include_local_details,
+    )
+    if markdown:
+        sys.stdout.write(render_markdown(document))
+        return OK
+    _print_json(document)
+    return OK
+
+
 def _verify(
     receipt_path: Path,
     manifest_path: Path | None,
@@ -246,6 +286,13 @@ def main(argv: list[str] | None = None) -> int:
             return _verify_evidence_plan(args.plan, args.manifest)
         if args.command == "check-evidence":
             return _check_evidence(args.manifest, args.evidence_id, args.evidence_root)
+        if args.command == "audit-evidence-root":
+            return _audit_evidence_root(
+                args.manifest,
+                args.evidence_root,
+                args.include_local_details,
+                args.markdown,
+            )
         if args.command == "verify":
             return _verify(args.receipt, args.manifest, args.evidence_root)
         if args.command == "research-metrics":
@@ -255,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         ManifestError,
         EvidencePlanError,
         EvidenceCheckError,
+        EvidenceRootAuditError,
         ReceiptError,
         ResearchError,
         BoundedPathError,
