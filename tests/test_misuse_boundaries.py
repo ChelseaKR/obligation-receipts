@@ -39,3 +39,53 @@ def test_discovery_boundary_excludes_signing_adapters_and_legal_interpretation()
         path.name in {"adapters.py", "signing.py", "legal.py"}
         for path in (root / "src/obligation_receipts").glob("*.py")
     )
+
+
+def test_every_module_that_names_the_artifact_cap_names_the_same_number() -> None:
+    """The evaluator's artifact cap is copied into two modules and held by nothing.
+
+    `evaluator._MAX_ARTIFACT_BYTES` decides what `evaluate` can read.
+    `inventory.MAX_ARTIFACT_BYTES` and `progress.MAX_ARTIFACT_BYTES` are separate
+    literals whose comments both say they are "the evaluator's artifact cap", and the
+    honesty claim of both modules rests on that being true: progress states that
+    "'present' here means 'present and usable by `evaluate`' rather than 'a file of
+    some size exists'", and inventory says an oversized file "must be reported as
+    unreadable rather than as a present artifact the evaluator would later refuse".
+
+    Nothing compared them. Measured on this tree: tightening
+    `evaluator._MAX_ARTIFACT_BYTES` to 256 KiB alone left the whole suite green at
+    exit 0, and a 1 MiB artifact then read as present in both inventory and progress
+    while `evaluate` refused it -- the two commands written to say what `evaluate`
+    would do, disagreeing with `evaluate`. Each module's own tests use its own
+    constant, so they move together with whichever copy they were written against.
+
+    So the copies are compared here, by reading every literal in the package rather
+    than the three that exist today: a fourth copy added later is covered without
+    anyone remembering to add it.
+    """
+    import importlib
+
+    source_root = Path(__file__).parents[1] / "src/obligation_receipts"
+    found: dict[str, int] = {}
+    for path in sorted(source_root.glob("*.py")):
+        if path.stem == "__init__":
+            continue
+        module = importlib.import_module(f"obligation_receipts.{path.stem}")
+        for name, value in vars(module).items():
+            if not name.lstrip("_").startswith("MAX_ARTIFACT_BYTES"):
+                continue
+            assert isinstance(value, int), f"{path.name}:{name} is not an integer byte count"
+            found[f"{path.name}:{name}"] = value
+
+    assert len(found) >= 3, (
+        "the artifact cap is declared in evaluator, inventory and progress; "
+        f"this scan found {sorted(found)}. If a declaration moved, point this test at "
+        "wherever it went rather than deleting it."
+    )
+    assert len(set(found.values())) == 1, (
+        "the modules disagree about the artifact cap: "
+        + ", ".join(f"{where} = {value}" for where, value in sorted(found.items()))
+        + ". `inventory` and `progress` report what `evaluate` would be able to read, "
+        "so a file between the smallest and largest of these reads as present in one "
+        "command and is refused by another."
+    )
