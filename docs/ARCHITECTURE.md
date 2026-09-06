@@ -41,7 +41,7 @@ human-approved manifest                                   │
 
 ## Components
 
-All thirteen modules of `src/obligation_receipts/` appear below. A component
+All fourteen modules of `src/obligation_receipts/` appear below. A component
 list that quietly omits one describes a different program than the one that
 ships, and `canonical.py` and `exit_codes.py` — the strict-JSON seam every
 digest passes through and the exit contract every command draws from — were
@@ -76,9 +76,9 @@ both missing from a list that reads as exhaustive.
 - `exit_codes.py` is the single exit-code contract. One band serves every
   command, and code 2 is reserved for "no result document was produced" so an
   evaluated negative outcome is never confused with a tool or input error.
-- `cli.py` exposes seven subcommands: `validate`, `evaluate`, `evidence-plan`,
+- `cli.py` exposes eight subcommands: `validate`, `evaluate`, `evidence-plan`,
   `verify-evidence-plan`, `check-evidence`, `verify` (with optional replay),
-  and `research-metrics`. It parses arguments, delegates, prints one canonical
+  `audit-evidence-root`, and `research-metrics`. It parses arguments, delegates, prints one canonical
   JSON line, and maps the outcome onto `exit_codes.py`.
 - `plan.py` projects declared collection instructions into a closed,
   manifest-bound checklist. Its default profile redacts local paths, locators,
@@ -86,6 +86,13 @@ both missing from a list that reads as exhaustive.
 - `single_check.py` locates one globally unique declared evidence ID, delegates
   to the same assertion/attestation semantics as full evaluation, and emits an
   unsigned, non-aggregate diagnostic with explicit unchecked-evidence counts.
+- `inventory.py` inventories an evidence root against a manifest and evaluates
+  nothing. It walks with `os.scandir(follow_symlinks=False)` so a link planted
+  inside the root cannot enumerate or hash anything outside it, reports declared
+  artifacts present/absent, undeclared files, multiply-referenced artifacts,
+  bounded-path and size-cap violations, and symlinks. No status value and no
+  evidence content appear in its output, and a digest that could not be computed
+  is `null` with a stated reason rather than a zero.
 - `research.py` validates two frozen discovery CSVs and computes predeclared
   agreement metrics; it never creates or activates obligation mappings.
 

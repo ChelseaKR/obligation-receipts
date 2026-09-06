@@ -162,7 +162,7 @@ which one it received.
 | `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
 | `verify` | verified | payload digest or replay mismatch | — | — |
 | `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
-| `validate`, `evidence-plan`, `verify-evidence-plan`, `research-metrics` | success | — | — | — |
+| `validate`, `evidence-plan`, `verify-evidence-plan`, `audit-evidence-root`, `research-metrics` | success | — | — | — |
 
 `accepted_with_findings` exits 0 because every `must` obligation passed and only
 a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
@@ -183,6 +183,17 @@ integrity finding about that receipt, not a failure to read it.
 `verify receipt.json` checks the receipt's non-circular payload checksum.
 Supplying the manifest and evidence root also performs a fresh replay and
 requires byte-equivalent payload content.
+
+`audit-evidence-root` inventories what an evidence root actually contains and
+evaluates nothing. It reports declared artifacts present and absent, files that
+are present but undeclared, artifacts referenced by more than one evidence id,
+files that break the bounded-path rules or exceed the artifact cap, and symlinks
+— reported, never followed. It exits 0 whenever the inventory was computed and 2
+on an input error, because an inventory is not a verdict: no status value and no
+evidence content appear in its output, and a digest that could not be computed is
+`null` with a stated reason rather than a zero. Relative paths are redacted unless
+`--include-local-details` is given, as in `evidence-plan`. `--markdown` renders it
+for a status meeting.
 
 `research-metrics` is a discovery-only utility for the predeclared two-rater
 protocol. It validates bounded frozen CSVs and reports file digests, a confusion
