@@ -4,7 +4,38 @@ All notable changes will be documented here.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Ten wrong page numbers in `docs/discovery/public-sample-candidates.md`. Every
+  THECB locator was recorded one page low: §3.4 Deliverables is on p.9, not p.8,
+  and §3.5 Acceptance Criteria on p.10, not p.9. The clauses selected were right
+  and the pointers to them were not, which is the failure mode this repository
+  exists to argue about, here in its own research record. Found by re-fetching
+  the document and resolving each locator against the extracted text; the ten
+  CalOES locators verified unchanged.
+
+### Added
+
+- A verification record in `docs/discovery/public-sample-candidates.md`: both
+  frozen sources re-fetched from their official URLs on 2026-09-06, byte counts
+  and SHA-256 digests reproduced exactly 46 days after retrieval, and each of the
+  twenty locators resolved against the extracted text. Recorded as a documented
+  procedure rather than a CI check, because a gate that fetches a live
+  third-party URL and asserts a hash fails as if the repository were wrong the
+  day the publisher re-exports the file.
+- Immutable sample and clause IDs for the two documents with a frozen byte
+  artifact, namespaced per sample so a third document never renumbers them. The
+  USDA/FNS candidate is deliberately unassigned: an ID would let a clause key
+  point at a document nobody can reproduce.
+- `docs/discovery/rater-workbook-prepared.csv`, the shared instrument each rater
+  copies, carrying the twenty clause keys with identification filled and every
+  judgment column blank. `research-metrics` compares two workbooks by their
+  `(sample_id, clause_id)` key set, so two raters who each invented their own
+  clause IDs would produce two individually valid files the tool cannot compare
+  -- discoverable only after both had finished.
+- `tests/test_discovery_sample.py`, binding the record, the instrument and
+  `research._HEADER` to each other, and asserting the instrument carries no
+  ratings and is refused by `load_ratings` until a rater fills it.
 
 ## [0.1.0] - 2026-09-04
 
