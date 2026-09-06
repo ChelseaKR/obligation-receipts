@@ -46,6 +46,31 @@ jobs:
       - name: Exercise and replay the synthetic example
         run: make demo
 
+  dogfood-action:
+    # Runs the composite action in this repository against its own example, so
+    # the published integration is exercised on every pull request rather than
+    # only when a consumer complains. `fail-on: any` is deliberate here: the
+    # example manifest evaluates to `accepted_with_findings` (exit 0), so any
+    # movement to 1, 3 or 4 should turn this job red.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Evaluate the example through the local action
+        uses: ./
+        with:
+          mode: evaluate
+          manifest: examples/accessibility-acceptance/obligations.toml
+          evidence-root: examples/accessibility-acceptance/evidence
+          receipt: ${{ runner.temp }}/receipt.json
+          fail-on: any
+          # `github.sha` is the pull request's merge commit, so the dogfood run
+          # installs the merged state rather than the raw head, which also keeps
+          # CodeQL's untrusted-checkout query satisfied.
+          version: ${{ github.sha }}
+
   package:
     runs-on: ubuntu-latest
     timeout-minutes: 10

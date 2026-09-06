@@ -56,8 +56,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    validate = subparsers.add_parser("validate", help="validate and source-bind a manifest")
-    validate.add_argument("manifest", type=Path)
+    validate = subparsers.add_parser(
+        "validate", help="validate and source-bind one or more manifests"
+    )
+    # `nargs="+"` so the pre-commit hook in .pre-commit-hooks.yaml works: hooks
+    # receive every changed matching file in ONE invocation, so a single-arg
+    # parser would fail on a repository holding two manifests -- and would fail
+    # as a usage error, which reads like the manifests are bad. One manifest
+    # still produces exactly the output and exit code it did before.
+    validate.add_argument("manifest", type=Path, nargs="+")
 
     evaluate = subparsers.add_parser("evaluate", help="evaluate a manifest against local evidence")
     evaluate.add_argument("manifest", type=Path)
@@ -170,16 +177,23 @@ def _print_json(value: dict[str, JsonValue]) -> None:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
-def _validate(path: Path) -> int:
-    manifest = load_manifest(path)
-    _print_json(
-        {
-            "contract_id": manifest.contract.contract_id,
-            "manifest_sha256": manifest.manifest_sha256,
-            "obligation_count": len(manifest.obligations),
-            "status": "valid",
-        }
-    )
+def _validate(paths: list[Path]) -> int:
+    """Validate every named manifest, one canonical JSON line each.
+
+    Each manifest is loaded in turn and the first unusable one raises, so the
+    caller learns which file failed. Nothing is written and nothing is
+    evaluated.
+    """
+    for path in paths:
+        manifest = load_manifest(path)
+        _print_json(
+            {
+                "contract_id": manifest.contract.contract_id,
+                "manifest_sha256": manifest.manifest_sha256,
+                "obligation_count": len(manifest.obligations),
+                "status": "valid",
+            }
+        )
     return OK
 
 

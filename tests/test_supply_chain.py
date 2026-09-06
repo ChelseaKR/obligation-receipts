@@ -14,6 +14,23 @@ def workflow_files(root: Path) -> list[Path]:
     return sorted(path for suffix in _WORKFLOW_SUFFIXES for path in directory.glob(suffix))
 
 
+def action_files(root: Path) -> list[Path]:
+    """The composite actions this repository publishes.
+
+    A composite action runs third-party actions exactly as a workflow does, and
+    is consumed by OTHER repositories, so an unpinned `uses:` here is if
+    anything worse than one in `.github/workflows/`. The digest-pin gate read
+    only that directory, so `action.yml` at the repository root sat outside
+    every supply-chain check while being the file downstream users execute.
+    """
+    return sorted(path for name in ("action.yml", "action.yaml") for path in root.glob(name))
+
+
+def pinned_files(root: Path) -> list[Path]:
+    """Everything the digest-pin gate must read: workflows and composite actions."""
+    return [*workflow_files(root), *action_files(root)]
+
+
 def test_every_workflow_file_is_discovered_by_the_supply_chain_gate() -> None:
     """The gate's own file discovery must cover what GitHub would run.
 
@@ -30,16 +47,34 @@ def test_every_workflow_file_is_discovered_by_the_supply_chain_gate() -> None:
     )
 
 
+def test_the_composite_action_is_read_by_the_supply_chain_gate() -> None:
+    """The published composite action must be inside the pin gate's scope."""
+    root = Path(__file__).parents[1]
+    assert action_files(root), "action.yml is published but the supply-chain gate cannot see it"
+    assert set(action_files(root)) <= set(pinned_files(root))
+
+
 def test_ci_actions_are_digest_pinned() -> None:
     root = Path(__file__).parents[1]
-    workflows = workflow_files(root)
+    workflows = pinned_files(root)
     assert workflows
     action_pattern = re.compile(r"^\s*(?:-\s+)?uses:\s*[^@\s]+@([0-9a-f]{40})(?:\s+#.*)?$")
+    # A `uses: ./...` reference resolves to the checked-out tree itself, so
+    # there is no third-party digest to pin -- it already IS the commit the job
+    # is running. The leading `./` is required and the pattern is anchored, so
+    # this cannot be widened into accepting an unpinned remote reference: a
+    # bare `uses: actions/checkout` or `uses: owner/repo@v4` still fails.
+    local_pattern = re.compile(r"^\s*(?:-\s+)?uses:\s*\./(?!\S*\.\.)[^@\s]*$")
     for workflow in workflows:
         text = workflow.read_text(encoding="utf-8")
         uses_lines = [line for line in text.splitlines() if "uses:" in line]
         assert uses_lines
-        assert all(action_pattern.fullmatch(line) for line in uses_lines)
+        unpinned = [
+            line
+            for line in uses_lines
+            if not action_pattern.fullmatch(line) and not local_pattern.fullmatch(line)
+        ]
+        assert not unpinned, f"{workflow.name} has unpinned action references: {unpinned}"
         assert "pull_request_target:" not in text
         assert "permissions: write-all" not in text
 
@@ -464,3 +499,31 @@ def test_every_job_that_holds_a_runner_declares_how_long_it_may_hold_it() -> Non
             f"{workflow.name}: {excessive} exceed the {_MAX_TIMEOUT_MINUTES}-minute ceiling. "
             "A timeout longer than any run has ever needed is a declaration, not a bound."
         )
+
+
+def test_the_local_reference_exemption_cannot_admit_a_remote_action() -> None:
+    """The `uses: ./` exemption must not become a hole for unpinned remotes.
+
+    Written because the exemption was added to let the dogfood job reference
+    this repository's own composite action. An exemption that also matched
+    `uses: owner/repo@v4` would quietly disable the pin gate for every workflow.
+
+    The `..` case is here because the first draft of the pattern accepted
+    `uses: ./../outside`, which leaves the repository. This test caught it
+    before the pattern shipped, which is the reason it exists.
+    """
+    import re as re_module
+
+    local_pattern = re_module.compile(r"^\s*(?:-\s+)?uses:\s*\./(?!\S*\.\.)[^@\s]*$")
+    accepted = ["      - uses: ./", "        uses: ./", "      - uses: ./.github/actions/x"]
+    refused = [
+        "      - uses: actions/checkout@v4",
+        "      - uses: actions/checkout",
+        "      - uses: owner/repo@main",
+        "      - uses: ./../outside",
+        "      - uses: docker://alpine",
+    ]
+    for line in accepted:
+        assert local_pattern.fullmatch(line), f"should accept a local reference: {line!r}"
+    for line in refused:
+        assert not local_pattern.fullmatch(line), f"must not accept: {line!r}"

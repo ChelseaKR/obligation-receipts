@@ -22,12 +22,13 @@
       carried both triggers since the repository's first commit; no date is
       given here because the triggers are checkable against the workflow and a
       typed date is not.
-- [x] `protect-main` requiring a pull request and all six checks. The ruleset
-      has been active since 2026-08-07, but it required only `verify` until the
-      change recorded in the CHANGELOG under "Require every CI check in the
-      `protect-main` ruleset"; before that the other five ran and reported
-      without being able to block. zizmor's ability to block was proved on
-      2026-08-27.
+- [x] `protect-main` requiring a pull request and six merge-blocking checks. The
+      ruleset has been active since 2026-08-07, but it required only `verify`
+      until the change recorded in the CHANGELOG under "Require every CI check
+      in the `protect-main` ruleset"; before that the other five ran and
+      reported without being able to block. zizmor's ability to block was proved
+      on 2026-08-27. `ci.yml` now defines a seventh job, `dogfood-action`, which
+      the ruleset does not yet name, so it reports without being able to block.
 - [x] One RFC 6901 pointer definition shared by load, plan, and evaluation,
       so an authoring defect is an input error rather than an observed fail
 - [x] Single declared-evidence check that preserves one item's status, reads no
