@@ -6,6 +6,23 @@ All notable changes will be documented here.
 
 ### Fixed
 
+- **The evaluator's artifact cap is copied into two modules and nothing held the
+  copies equal.** `evaluator._MAX_ARTIFACT_BYTES`, `inventory.MAX_ARTIFACT_BYTES` and
+  `progress.MAX_ARTIFACT_BYTES` are three separate 2 MiB literals; the two newer ones
+  are documented as "the evaluator's artifact cap", and the honesty claim of both
+  commands rests on that being true. `progress` states that "'present' here means
+  'present and usable by `evaluate`' rather than 'a file of some size exists'", and
+  `inventory` states that an oversized file "must be reported as unreadable rather than
+  as a present artifact the evaluator would later refuse". Measured: tightening
+  `evaluator._MAX_ARTIFACT_BYTES` to 256 KiB alone left the whole suite green at exit 0,
+  and a 1 MiB artifact then read as present under both `inventory` and `progress` while
+  `evaluate` refused it. Each module's tests use its own constant, so they move with
+  whichever copy they were written against.
+  `tests/test_misuse_boundaries.py` now compares every artifact-cap literal the package
+  declares, found by importing each module rather than by naming the three that exist
+  today, so a fourth copy is covered without anyone remembering to add it. The test
+  fails against a drifted evaluator and passes on this tree; no constant changed.
+
 - Ten wrong page numbers in `docs/discovery/public-sample-candidates.md`. Every
   THECB locator was recorded one page low: §3.4 Deliverables is on p.9, not p.8,
   and §3.5 Acceptance Criteria on p.10, not p.9. The clauses selected were right
