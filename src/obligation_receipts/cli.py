@@ -6,9 +6,12 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from obligation_receipts.canonical import StrictJsonError, canonical_json_bytes
+from obligation_receipts.diff import ReceiptDiffError, diff_receipts
+from obligation_receipts.diff import render_markdown as render_diff_markdown
 from obligation_receipts.evaluator import evaluate_manifest
 from obligation_receipts.exit_codes import INPUT_ERROR, OBSERVED_FAILURE, OK, evaluation_exit_code
 from obligation_receipts.inventory import (
@@ -88,6 +91,18 @@ def _parser() -> argparse.ArgumentParser:
     check_evidence.add_argument("manifest", type=Path)
     check_evidence.add_argument("evidence_id")
     check_evidence.add_argument("--evidence-root", type=Path, required=True)
+
+    diff_parser = subparsers.add_parser(
+        "diff-receipts",
+        help="compare two receipts of one contract; nothing is re-evaluated",
+    )
+    diff_parser.add_argument("prior", type=Path)
+    diff_parser.add_argument("current", type=Path)
+    diff_parser.add_argument(
+        "--markdown",
+        action="store_true",
+        help="write a Markdown rendering to stdout instead of one canonical JSON line",
+    )
 
     plan_status = subparsers.add_parser(
         "plan-status",
@@ -241,6 +256,15 @@ def _check_evidence(
     return evidence_check_exit_code(document)
 
 
+def _diff_receipts(prior_path: Path, current_path: Path, markdown: bool) -> int:
+    document = diff_receipts(load_receipt(prior_path), load_receipt(current_path))
+    if markdown:
+        sys.stdout.write(render_diff_markdown(document))
+        return OK
+    _print_json(document)
+    return OK
+
+
 def _plan_status(
     plan_path: Path,
     manifest_path: Path,
@@ -312,50 +336,50 @@ def _verify(
     return OK
 
 
+def _research_metrics(rater_a: Path, rater_b: Path) -> int:
+    _print_json(analyze_ratings(rater_a, rater_b))
+    return OK
+
+
+#: Subcommand -> the handler and the argument names it takes, in order.
+#:
+#: A table rather than an `if` chain. The chain grew one branch per subcommand
+#: and twice pushed its enclosing function past the complexity ceiling
+#: `make lint` enforces -- first `main`, then `_dispatch` -- so each new verb
+#: cost a refactor. A table's complexity does not grow with the number of
+#: commands, and a verb registered here with no parser, or a parser with no
+#: entry here, is caught by a test rather than by a missing branch that
+#: silently returns INPUT_ERROR.
+_COMMANDS: dict[str, tuple[Callable[..., int], tuple[str, ...]]] = {
+    "validate": (_validate, ("manifest",)),
+    "evaluate": (_evaluate, ("manifest", "evidence_root", "out", "generated_at")),
+    "evidence-plan": (_evidence_plan, ("manifest", "out", "include_local_details")),
+    "verify-evidence-plan": (_verify_evidence_plan, ("plan", "manifest")),
+    "check-evidence": (_check_evidence, ("manifest", "evidence_id", "evidence_root")),
+    "diff-receipts": (_diff_receipts, ("prior", "current", "markdown")),
+    "plan-status": (
+        _plan_status,
+        ("plan", "manifest", "evidence_root", "include_local_details", "markdown"),
+    ),
+    "audit-evidence-root": (
+        _audit_evidence_root,
+        ("manifest", "evidence_root", "include_local_details", "markdown"),
+    ),
+    "verify": (_verify, ("receipt", "manifest", "evidence_root")),
+    "research-metrics": (_research_metrics, ("rater_a", "rater_b")),
+}
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     """Route one parsed command to its handler.
 
     Split out of `main` so `main` stays the error boundary and nothing else.
-    Adding a subcommand grew `main`'s branch count past the complexity ceiling
-    `make lint` enforces, and the fix is to stop making the error handler also
-    be the router rather than to raise the ceiling.
     """
-    if args.command == "validate":
-        return _validate(args.manifest)
-    if args.command == "evaluate":
-        return _evaluate(
-            args.manifest,
-            args.evidence_root,
-            args.out,
-            args.generated_at,
-        )
-    if args.command == "evidence-plan":
-        return _evidence_plan(args.manifest, args.out, args.include_local_details)
-    if args.command == "verify-evidence-plan":
-        return _verify_evidence_plan(args.plan, args.manifest)
-    if args.command == "check-evidence":
-        return _check_evidence(args.manifest, args.evidence_id, args.evidence_root)
-    if args.command == "plan-status":
-        return _plan_status(
-            args.plan,
-            args.manifest,
-            args.evidence_root,
-            args.include_local_details,
-            args.markdown,
-        )
-    if args.command == "audit-evidence-root":
-        return _audit_evidence_root(
-            args.manifest,
-            args.evidence_root,
-            args.include_local_details,
-            args.markdown,
-        )
-    if args.command == "verify":
-        return _verify(args.receipt, args.manifest, args.evidence_root)
-    if args.command == "research-metrics":
-        _print_json(analyze_ratings(args.rater_a, args.rater_b))
-        return OK
-    return INPUT_ERROR
+    entry = _COMMANDS.get(args.command)
+    if entry is None:
+        return INPUT_ERROR
+    handler, parameters = entry
+    return handler(*(getattr(args, name) for name in parameters))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -369,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         EvidenceCheckError,
         EvidenceRootAuditError,
         PlanStatusError,
+        ReceiptDiffError,
         ReceiptError,
         ResearchError,
         BoundedPathError,

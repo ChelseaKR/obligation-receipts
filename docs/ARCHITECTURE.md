@@ -41,7 +41,7 @@ human-approved manifest                                   │
 
 ## Components
 
-All fifteen modules of `src/obligation_receipts/` appear below. A component
+All sixteen modules of `src/obligation_receipts/` appear below. A component
 list that quietly omits one describes a different program than the one that
 ships, and `canonical.py` and `exit_codes.py` — the strict-JSON seam every
 digest passes through and the exit contract every command draws from — were
@@ -76,9 +76,11 @@ both missing from a list that reads as exhaustive.
 - `exit_codes.py` is the single exit-code contract. One band serves every
   command, and code 2 is reserved for "no result document was produced" so an
   evaluated negative outcome is never confused with a tool or input error.
-- `cli.py` exposes nine subcommands: `validate`, `evaluate`, `evidence-plan`,
+- `cli.py` exposes ten subcommands: `validate`, `evaluate`, `evidence-plan`,
   `verify-evidence-plan`, `check-evidence`, `verify` (with optional replay),
-  `plan-status`, `audit-evidence-root`, and `research-metrics`. It parses arguments, delegates, prints one canonical
+  `diff-receipts`, `plan-status`, `audit-evidence-root`, and `research-metrics`.
+  They are routed by a table rather than an `if` chain, so the router's
+  complexity does not grow with the number of verbs. It parses arguments, delegates, prints one canonical
   JSON line, and maps the outcome onto `exit_codes.py`.
 - `plan.py` projects declared collection instructions into a closed,
   manifest-bound checklist. Its default profile redacts local paths, locators,
@@ -86,6 +88,12 @@ both missing from a list that reads as exhaustive.
 - `single_check.py` locates one globally unique declared evidence ID, delegates
   to the same assertion/attestation semantics as full evaluation, and emits an
   unsigned, non-aggregate diagnostic with explicit unchecked-evidence counts.
+- `diff.py` compares two receipts of one contract and attributes each change
+  to its cause. It verifies both receipts before comparing anything, never
+  re-evaluates, and speaks only the domain's own status labels -- no
+  "improved", "regressed" or "compliant" -- so a diff cannot become a legal
+  conclusion by accident. Receipts for different contracts are refused rather
+  than reported as a large change set.
 - `progress.py` reports collection progress against an approved plan and
   evaluates nothing. It regenerates the plan from the manifest first, then
   reports each requirement `present`, `absent`, or `unreadable`, and for an

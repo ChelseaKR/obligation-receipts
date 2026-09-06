@@ -162,7 +162,7 @@ which one it received.
 | `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
 | `verify` | verified | payload digest or replay mismatch | — | — |
 | `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
-| `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `research-metrics` | success | — | — | — |
+| `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `diff-receipts`, `research-metrics` | success | — | — | — |
 
 `accepted_with_findings` exits 0 because every `must` obligation passed and only
 a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
@@ -183,6 +183,14 @@ integrity finding about that receipt, not a failure to read it.
 `verify receipt.json` checks the receipt's non-circular payload checksum.
 Supplying the manifest and evidence root also performs a fresh replay and
 requires byte-equivalent payload content.
+
+`diff-receipts prior.json current.json` compares two receipts of one contract
+and says what moved: which obligations changed status, which had an evidence
+digest change, and which were added or removed, with the manifest and source
+digests on each side. It verifies both receipts first, never re-evaluates, and
+reports only the domain's own status labels, so it states what changed without
+ever concluding whether that is better or worse. Receipts for different contracts
+exit 2. `--markdown` renders it for a retest review.
 
 `plan-status` reports evidence-collection progress against an approved plan
 without evaluating anything. Each declared requirement is `present`, `absent`, or
