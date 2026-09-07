@@ -58,8 +58,13 @@ Matches `docs/PRD.md`'s "P1 — only after discovery".
 - One adapter family selected from observed workflow.
 - Static accessible trace report.
 - Amendment diff and invalidation rules.
-- Signed release pipeline with actual publication authority. Hosted CI is no
-  longer listed here: it shipped with the first commit, ahead of the thresholds.
+- Signed release pipeline with actual publication authority. The pipeline itself
+  shipped on 2026-09-06, ahead of the thresholds, as hosted CI did before it:
+  `release.yml` now carries GitHub-release and PyPI Trusted-Publishing jobs. It
+  stays listed here because it has published nothing and cannot yet — a PyPI
+  Trusted Publisher has to be registered by hand, and `docs/RELEASE.md` records
+  what else a first publication would need. Building the machinery is not the
+  same as the thresholds passing.
 
 ## Later
 

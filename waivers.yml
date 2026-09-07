@@ -20,28 +20,27 @@
 # the exemption is withdrawn. It is withdrawn now rather than at its
 # 2026-11-30 expiry because the expiry test catches decay by time, and this
 # waiver decayed by a change of fact roughly twelve weeks earlier.
+# WVR-009 (REL-14, the `release_workflow` control) was RETIRED on 2026-09-06,
+# on its own stated trigger. It read: "Revisit when M0 exits and publication
+# authority is actually wanted; the control becomes implementable in the same
+# change that adds it." This is that change. `release.yml` now implements the
+# whole hardened shape the control recognizes -- a workflow_dispatch tag input,
+# a trusted-main authorization job, gates re-run at the authorized commit, and
+# checkout-free write jobs that publish the exact attested bytes -- so there is
+# nothing left to waive and the honest record is the implementation rather than
+# an exemption from it.
+#
+# What the waiver's reason asserted is no longer true and is preserved here so
+# the change of fact is legible: it said `contents: write`, `gh release create`
+# and every publish action were absent and that `tests/test_supply_chain.py`
+# asserted their absence. All three are now present, in `github-release` and
+# `pypi-publish` only, and that same test file asserts the CONFINEMENT rather
+# than the absence: every other workflow is still forbidden to publish
+# anything, the build job may not, and the PyPI upload must be Trusted
+# Publishing over OIDC with no stored credential.
+#
+# Retiring this left the registry empty for the first time. That is a real
+# state, not a missing file: see `docs/RELEASE.md` for the preconditions on
+# publication that remain, none of which is a waived control.
 version: 1
-waivers:
-  - id: WVR-009
-    control: REL-14
-    repo: obligation-receipts
-    kind: other
-    reason: >-
-      The portfolio's `release_workflow` control recognizes one hardened shape:
-      a workflow_dispatch tag input, a trusted-main ref guard, a read-only
-      signed-tag verification job, and a checkout-free write job that performs
-      publication. `release.yml` here implements the build side of that shape
-      (SBOM, build-provenance attestation, and a keyless cosign signature over
-      `dist/SHA256SUMS`) but deliberately holds no publication authority at all:
-      `contents: write`, `gh release create`, and every publish action are
-      absent, and `tests/test_supply_chain.py` asserts their absence as a
-      merge-blocking boundary. The remaining elements of the control all
-      presuppose a publish step that this project has decided not to have in
-      M0. Declaring the whole standard `N/A` would be the false alternative:
-      versioning, a changelog, and a signed candidate build all exist and are
-      maintained. Revisit when M0 exits and publication authority is actually
-      wanted; the control becomes implementable in the same change that adds it.
-    owner: chelseakr
-    granted: 2026-08-28
-    expires: 2026-11-30
-    link: docs/RELEASE.md
+waivers: []
