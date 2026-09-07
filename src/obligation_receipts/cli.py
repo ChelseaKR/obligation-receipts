@@ -19,6 +19,13 @@ from obligation_receipts.inventory import (
     audit_evidence_root,
     render_markdown,
 )
+from obligation_receipts.ledger import (
+    PASS_LIMITS,
+    LedgerError,
+    append_receipt,
+    read_ledger,
+    verify_chain,
+)
 from obligation_receipts.lock import (
     EvidenceLockError,
     build_evidence_lock,
@@ -87,6 +94,19 @@ def _parser() -> argparse.ArgumentParser:
             "if any declared artifact is not exactly what the lock froze"
         ),
     )
+
+    ledger_append = subparsers.add_parser(
+        "ledger-append",
+        help="append one verified receipt to a contract's hash-chained ledger",
+    )
+    ledger_append.add_argument("receipt", type=Path)
+    ledger_append.add_argument("--ledger", type=Path, required=True)
+
+    ledger_verify = subparsers.add_parser(
+        "ledger-verify",
+        help="re-hash a contract's receipt ledger and report any break in the chain",
+    )
+    ledger_verify.add_argument("ledger", type=Path)
 
     freeze = subparsers.add_parser(
         "freeze-evidence",
@@ -251,6 +271,53 @@ def _evaluate(
         summary["evidence_lock_sha256"] = lock_sha256
     _print_json(summary)
     return evaluation_exit_code(evaluation.overall_status)
+
+
+def _ledger_append(receipt_path: Path, ledger_path: Path) -> int:
+    """Append one receipt, after verifying it, or refuse and change nothing.
+
+    The receipt is verified first. A ledger of unverified receipts would chain
+    the order of documents nobody checked, which is a weaker claim than it looks
+    and would be read as a stronger one.
+    """
+
+    receipt = load_receipt(receipt_path)
+    verify_receipt(receipt)
+    entry = append_receipt(ledger_path, receipt)
+    _print_json(
+        {
+            "contract_id": entry.contract_id,
+            "entry_hash": entry.entry_hash,
+            "index": entry.index,
+            "ledger": str(ledger_path),
+            "overall_status": entry.overall_status,
+            "payload_sha256": entry.payload_sha256,
+        }
+    )
+    return OK
+
+
+def _ledger_verify(ledger_path: Path) -> int:
+    """Re-hash the chain. A break is a finding about the records, not an input error.
+
+    Reading the file can fail as an input error and does, above, through
+    `LedgerError`. From here every failure is something the records say about
+    themselves, so it exits `OBSERVED_FAILURE` and the problems are reported
+    rather than raised.
+    """
+
+    entries = read_ledger(ledger_path)
+    problems = verify_chain(entries)
+    _print_json(
+        {
+            "entries": len(entries),
+            "ledger": str(ledger_path),
+            "limitations": list(PASS_LIMITS),
+            "problems": list(problems),
+            "status": "broken" if problems else "verified",
+        }
+    )
+    return OBSERVED_FAILURE if problems else OK
 
 
 def _freeze_evidence(manifest_path: Path, evidence_root: Path, out: Path) -> int:
@@ -431,6 +498,8 @@ _COMMANDS: dict[str, tuple[Callable[..., int], tuple[str, ...]]] = {
     "validate": (_validate, ("manifest",)),
     "evaluate": (_evaluate, ("manifest", "evidence_root", "out", "generated_at", "lock")),
     "freeze-evidence": (_freeze_evidence, ("manifest", "evidence_root", "out")),
+    "ledger-append": (_ledger_append, ("receipt", "ledger")),
+    "ledger-verify": (_ledger_verify, ("ledger",)),
     "evidence-plan": (_evidence_plan, ("manifest", "out", "include_local_details")),
     "verify-evidence-plan": (_verify_evidence_plan, ("plan", "manifest")),
     "check-evidence": (_check_evidence, ("manifest", "evidence_id", "evidence_root")),
@@ -470,6 +539,7 @@ def main(argv: list[str] | None = None) -> int:
         EvidencePlanError,
         EvidenceCheckError,
         EvidenceLockError,
+        LedgerError,
         EvidenceRootAuditError,
         PlanStatusError,
         ReceiptDiffError,

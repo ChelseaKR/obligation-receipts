@@ -163,7 +163,8 @@ which one it received.
 | `verify` | verified | payload digest or replay mismatch | — | — |
 | `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
 | `evaluate --lock` | as `evaluate`, when the evidence is exactly what the lock froze | as `evaluate` | as `evaluate` | — |
-| `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `diff-receipts`, `freeze-evidence`, `research-metrics` | success | — | — | — |
+| `ledger-verify` | the chain is intact | an entry was edited, inserted, removed, or reordered — a finding about the records | — | — |
+| `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `diff-receipts`, `freeze-evidence`, `ledger-append`, `research-metrics` | success | — | — | — |
 
 `accepted_with_findings` exits 0 because every `must` obligation passed and only
 a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
