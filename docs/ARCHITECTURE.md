@@ -41,7 +41,7 @@ human-approved manifest                                   │
 
 ## Components
 
-All seventeen modules of `src/obligation_receipts/` appear below. A component
+All eighteen modules of `src/obligation_receipts/` appear below. A component
 list that quietly omits one describes a different program than the one that
 ships, and `canonical.py` and `exit_codes.py` — the strict-JSON seam every
 digest passes through and the exit contract every command draws from — were
@@ -66,6 +66,12 @@ both missing from a list that reads as exhaustive.
 - `paths.py` is the single bounded-path seam. Source/evidence paths must be
   portable lexical relative paths beneath a caller-declared root; regular-file
   descriptors are opened nonblocking and final components are not followed.
+- `ledger.py` chains one contract's evaluations. Each entry carries the
+  previous entry's hash, so an entry edited, inserted, removed, or reordered
+  anywhere except at the end is detectable. It reads no clock — the entry
+  carries the receipt's own caller-declared timestamp, which makes the chain
+  byte-reproducible from the same receipts and keeps it from implying a trusted
+  time. It states what a clean chain does not prove beside every PASS.
 - `lock.py` freezes the declared evidence at collection time and refuses an
   evaluation whose evidence has moved since. It digests every declared
   artifact through the same bounded readers and the same artifact cap the
