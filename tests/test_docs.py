@@ -247,15 +247,15 @@ _REQUIRED_WAIVER_FIELDS = ("id", "control", "repo", "kind", "reason", "owner", "
 _ALLOWED_WAIVER_KINDS = {"semgrep", "vex", "pa11y", "na-in-flight", "other"}
 
 
-def _waiver_entries() -> list[dict[str, str]]:
-    """Parse `waivers.yml` without a YAML dependency.
+def _parse_waivers(text: str) -> list[dict[str, str]]:
+    """Parse a waiver registry without a YAML dependency.
 
     The runtime has no third-party dependencies and the dev group has no YAML
     parser, so the registry is read structurally. The file is a fixed, flat
     shape defined by STANDARDS/WAIVERS-SCHEMA.md version 1.
     """
     entries: list[dict[str, str]] = []
-    for line in _WAIVERS.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         if re.match(r"^\s*-\s+id:\s*\S", line):
             entries.append({})
         match = re.match(r"^\s*(?:-\s+)?([a-z_]+):\s*(.*)$", line)
@@ -267,15 +267,18 @@ def _waiver_entries() -> list[dict[str, str]]:
     return entries
 
 
-def test_waiver_registry_is_complete_and_unexpired() -> None:
-    """Every escape hatch is owned, reasoned, and dated, and no expiry has passed.
+def _waiver_entries() -> list[dict[str, str]]:
+    return _parse_waivers(_WAIVERS.read_text(encoding="utf-8"))
 
-    Deliberately time-sensitive. A mandatory expiry that never fires is how a
-    binding gate decays back into an aspiration; when this test goes red the
-    waiver is due for a decision, which is the mechanism working.
+
+def _waiver_problems(entries: list[dict[str, str]]) -> list[str]:
+    """Report every way the declared waivers fail the schema, or none.
+
+    Extracted from the test so the checker itself can be exercised against
+    registries this repository does not hold -- an empty one, and a malformed
+    one. Without the second, relaxing the empty case would produce a gate that
+    cannot fail and nothing would notice.
     """
-    entries = _waiver_entries()
-    assert entries, "waivers.yml declares no waivers; delete the file or record one"
     problems: list[str] = []
     identifiers = [entry.get("id", "") for entry in entries]
     if len(identifiers) != len(set(identifiers)):
@@ -292,7 +295,66 @@ def test_waiver_registry_is_complete_and_unexpired() -> None:
             problems.append(f"{name}: expires {expires!r} is not YYYY-MM-DD")
         elif date.fromisoformat(expires) < date.today():
             problems.append(f"{name}: expired on {expires} and must be renewed or retired")
-    assert not problems, "\n".join(problems)
+    return problems
+
+
+def test_waiver_registry_file_is_present_and_declares_its_schema() -> None:
+    """The registry is a required file, and an absent one is not an empty one.
+
+    This assertion is the half that used to be missing. The completeness test
+    below asserted a NON-EMPTY list and told a reader whose waivers had all
+    been retired to "delete the file" -- advice that cannot be followed,
+    because `_waiver_entries` then raises FileNotFoundError and the suite
+    errors instead of passing. Deleting the registry is not an available
+    option, and it is this test rather than a misleading hint that says so.
+    """
+    assert _WAIVERS.is_file(), "waivers.yml is a required file; an empty registry is `waivers: []`"
+    text = _WAIVERS.read_text(encoding="utf-8")
+    assert re.search(r"^version:\s*1\s*$", text, re.M), "waivers.yml must declare `version: 1`"
+    assert re.search(r"^waivers:", text, re.M), "waivers.yml must declare a `waivers:` key"
+
+
+def test_waiver_registry_is_complete_and_unexpired() -> None:
+    """Every escape hatch is owned, reasoned, and dated, and no expiry has passed.
+
+    Deliberately time-sensitive. A mandatory expiry that never fires is how a
+    binding gate decays back into an aspiration; when this test goes red the
+    waiver is due for a decision, which is the mechanism working.
+
+    Zero waivers is a legitimate terminal state of that same mechanism -- it is
+    what "every exemption was retired rather than renewed" looks like -- so it
+    is not asserted against here. The registry file itself is still required,
+    above, and the checker still fires on a malformed entry, below.
+    """
+    assert not _waiver_problems(_waiver_entries()), "\n".join(_waiver_problems(_waiver_entries()))
+
+
+def test_an_empty_waiver_registry_is_a_legitimate_state() -> None:
+    assert _parse_waivers("version: 1\nwaivers: []\n") == []
+    assert _waiver_problems([]) == []
+
+
+def test_the_waiver_checker_still_fires_on_a_defective_entry() -> None:
+    """The relaxation above must not have produced a gate that cannot fail."""
+    expired = _parse_waivers(
+        "version: 1\n"
+        "waivers:\n"
+        "  - id: WVR-999\n"
+        "    control: REL-14\n"
+        "    repo: obligation-receipts\n"
+        "    kind: other\n"
+        "    reason: placeholder\n"
+        "    owner: chelseakr\n"
+        "    granted: 2020-01-01\n"
+        "    expires: 2020-01-02\n"
+    )
+    assert len(expired) == 1
+    assert any("expired on 2020-01-02" in problem for problem in _waiver_problems(expired))
+    incomplete = _parse_waivers("version: 1\nwaivers:\n  - id: WVR-998\n    kind: banana\n")
+    problems = _waiver_problems(incomplete)
+    assert any("missing owner" in problem for problem in problems)
+    assert any("outside the allowed set" in problem for problem in problems)
+    assert _waiver_problems(expired + expired), "duplicate ids must be reported"
 
 
 def test_every_waiver_names_a_standards_control_and_this_repo() -> None:
