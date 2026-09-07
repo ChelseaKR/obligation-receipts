@@ -182,6 +182,24 @@ All notable changes will be documented here.
   `research._HEADER` to each other, and asserting the instrument carries no
   ratings and is refused by `load_ratings` until a rater fills it.
 
+- **`--allow-absent-source`: verify a receipt or a plan without possession of the
+  approved contract document.** `manifest._parse_contract` opened and re-hashed
+  `contract.source_path` unconditionally, so every manifest-bound command required
+  the SOW itself — and independent replay, the chain the README ends on, was
+  therefore impossible for anyone not entitled to it. The manifest can now be loaded
+  against `contract.source_sha256` alone, under an explicit opt-in, and reports
+  `contract_source_binding` as `verified` or `declared_only`. Only ABSENCE is
+  downgradable: a present source whose digest does not match, a path that escapes
+  its root, and a source that is not a regular file are all refused under both
+  modes, with the same messages. Without the flag, behaviour is byte-identical
+  including the error text, and the flag is refused where no manifest is loaded at
+  all. `manifest_sha256` is deliberately identical under both bindings — if the
+  binding entered the hashed payload, the replay this mode exists to enable would
+  fail on the digest rather than on the evidence.
+  Accepted by `validate`, `evidence-plan`, `verify-evidence-plan` and `verify`.
+  `evaluate` and `freeze-evidence` refuse it and say why: whether a *receipt* may be
+  produced against an unchecked contract binding is the open half of #78.
+
 ## [0.1.0] - 2026-09-04
 
 First tagged technical-alpha candidate. M0 scope: an offline CLI that evaluates
