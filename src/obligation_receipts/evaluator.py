@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import operator as operator_module
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -10,6 +12,7 @@ from obligation_receipts.canonical import (
     loads_json_strict,
     sha256_bytes,
 )
+from obligation_receipts.manifest import ManifestError
 from obligation_receipts.models import (
     Classification,
     Criticality,
@@ -44,6 +47,46 @@ def _load_json_artifact(root: Path, relative_path: str) -> tuple[JsonValue, str]
     return loads_json_strict(data), digest
 
 
+#: Ordering comparisons, by name, over two numbers.
+#:
+#: A dict rather than an if-chain so the set of operators this module can
+#: actually answer is a value the test suite can read. As an if-chain the
+#: implemented set existed only in control flow, and the trailing `return False`
+#: meant an operator nobody had implemented was answered "did not pass".
+_ORDERING: dict[str, Callable[[float, float], bool]] = {
+    "gt": operator_module.gt,
+    "gte": operator_module.ge,
+    "lt": operator_module.lt,
+    "lte": operator_module.le,
+}
+
+_EQUALITY = frozenset({"eq", "ne"})
+
+#: Every operator this build can answer. `exists` is included because
+#: `_evaluate_assertion` answers it from the pointer's found flag, one level up
+#: -- it is implemented, just not here.
+#:
+#: `tests/test_misuse_boundaries.py` asserts this equals
+#: `models.ASSERTION_OPERATORS`, the vocabulary the manifest loader and the
+#: evidence plan accept. The two drifting apart is not a crash: it is a
+#: `fail` in a receipt, against a supplier, for an assertion that was never
+#: evaluated.
+IMPLEMENTED_OPERATORS = frozenset(_EQUALITY | set(_ORDERING) | {"exists"})
+
+
+class UnsupportedOperatorError(ManifestError):
+    """The manifest declared an operator this build cannot evaluate.
+
+    A disagreement between the accepted vocabulary and the implemented one, not
+    a defect in the manifest -- the loader accepted it. It is raised rather than
+    answered, so it reaches the CLI's error boundary and exits `INPUT_ERROR`,
+    which the contract reserves for "no result document". The alternative, and
+    what this code did before, is to return `False`: the assertion is recorded
+    as an observed `fail` and the deliverable is `rejected`, on the strength of
+    a comparison that never happened.
+    """
+
+
 def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None) -> bool:
     """Compare a resolved value. `exists` never reaches here.
 
@@ -53,7 +96,17 @@ def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None
     disagreed with it: a member whose value is JSON `null` exists. It was
     removed rather than tested, because keeping two definitions of `exists` and
     exercising the unreachable one would have preserved the disagreement.
+
+    Every `return False` below is a real answer -- an ordering comparison
+    against a boolean or a string did not pass -- and every one of them is
+    reached only for an operator this module implements. An operator it does
+    not implement raises.
     """
+    if operator not in _EQUALITY and operator not in _ORDERING:
+        raise UnsupportedOperatorError(
+            f"operator {operator!r} is in the accepted vocabulary and has no implementation; "
+            "no evaluation was made"
+        )
     if isinstance(actual, bool) or isinstance(expected, bool):
         equal = isinstance(actual, bool) and isinstance(expected, bool) and actual is expected
         return equal if operator == "eq" else not equal if operator == "ne" else False
@@ -63,15 +116,7 @@ def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None
         return actual != expected
     if not isinstance(actual, int | float) or not isinstance(expected, int | float):
         return False
-    if operator == "gt":
-        return actual > expected
-    if operator == "gte":
-        return actual >= expected
-    if operator == "lt":
-        return actual < expected
-    if operator == "lte":
-        return actual <= expected
-    return False
+    return _ORDERING[operator](actual, expected)
 
 
 def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResult:

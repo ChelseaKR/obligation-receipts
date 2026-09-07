@@ -15,6 +15,7 @@ from obligation_receipts.canonical import (
     validate_json_value,
 )
 from obligation_receipts.models import (
+    ASSERTION_OPERATORS,
     Classification,
     Contract,
     Criticality,
@@ -36,7 +37,6 @@ _MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 _MAX_SOURCE_BYTES = 16 * 1024 * 1024
 _ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{1,79}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "exists"}
 _ROOT_KEYS = {"contract", "obligations"}
 _CONTRACT_KEYS = {
     "id",
@@ -151,8 +151,8 @@ def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
             # commands load, keeps it an input error instead of letting the
             # evaluator turn it into a deterministic observed `fail`.
             raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
-        if not isinstance(operator, str) or operator not in _OPERATORS:
-            raise ManifestError(f"{context}.operator must be one of {sorted(_OPERATORS)}")
+        if not isinstance(operator, str) or operator not in ASSERTION_OPERATORS:
+            raise ManifestError(f"{context}.operator must be one of {sorted(ASSERTION_OPERATORS)}")
         if operator != "exists" and "expected" not in value:
             raise ManifestError(f"{context}.expected is required for operator {operator}")
         if operator == "exists" and "expected" in value:
