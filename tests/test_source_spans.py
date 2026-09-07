@@ -101,6 +101,32 @@ def test_a_plausible_paraphrase_is_refused_even_though_it_reads_correctly(
         load_manifest(copied_example / "obligations.toml")
 
 
+def test_a_line_break_flattened_to_a_space_is_still_a_different_quotation(
+    copied_example: Path,
+) -> None:
+    """The whole of ADR 0002 in one test.
+
+    This text has the same words in the same order and the same byte *length*
+    as the source; the source's hard line break has become a space. Under any
+    whitespace-folding comparison it passes. Under the comparison this project
+    actually makes it does not, because the receipt's claim is "these are the
+    document's bytes", not "these are bytes that some normalizer maps onto the
+    document".
+
+    If this test ever goes green while the manifest still says `run.` on its own
+    line, the comparison has been loosened and the claim has been given up.
+    """
+    _replace(
+        copied_example / "obligations.toml",
+        "The delivered service must have zero critical automated accessibility\n"
+        "violations in the approved acceptance run.",
+        "The delivered service must have zero critical automated accessibility "
+        "violations in the approved acceptance run.",
+    )
+    with pytest.raises(ManifestError, match="a1-zero-critical-violations"):
+        load_manifest(copied_example / "obligations.toml")
+
+
 def test_a_span_running_past_the_end_of_the_source_is_refused_before_anything_is_evaluated(
     copied_example: Path,
 ) -> None:
