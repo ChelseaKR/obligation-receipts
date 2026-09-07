@@ -162,7 +162,8 @@ which one it received.
 | `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
 | `verify` | verified | payload digest or replay mismatch | — | — |
 | `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
-| `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `diff-receipts`, `research-metrics` | success | — | — | — |
+| `evaluate --lock` | as `evaluate`, when the evidence is exactly what the lock froze | as `evaluate` | as `evaluate` | — |
+| `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `diff-receipts`, `freeze-evidence`, `research-metrics` | success | — | — | — |
 
 `accepted_with_findings` exits 0 because every `must` obligation passed and only
 a `should` did not. `incomplete` exits 3 rather than 4 because it aggregates
