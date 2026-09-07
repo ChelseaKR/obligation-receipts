@@ -248,6 +248,9 @@ The overall result is:
 - No arbitrary command, script, expression language, or plugin execution.
 - No fetching evidence from a URL.
 - No claim that a technically passing result requires contractual acceptance.
+- No claim about how much of a contract is under obligation. A `source_span`
+  binds one quotation to one place in the source; it says nothing about the
+  clauses nobody wrote an obligation for.
 - No signature claim: M0 receipts explicitly say `not_signed`.
 - No trusted timestamp claim: envelope time is caller-declared and untrusted.
 - No raw evidence content in receipts; only bounded results and artifact hashes.
@@ -257,6 +260,16 @@ The overall result is:
   input error at load time, not an observed failure. Manifest loading,
   evidence-plan validation, and evaluation share one definition of well formed
   (`pointer.py`), so no two commands can disagree about the same manifest.
+- An obligation may bind its `text` to a `source_span` — a byte offset, length,
+  and digest into the approved source. When one is declared, the loader reads
+  those bytes and refuses the manifest unless `text` is **exactly** them; no
+  normalization of any kind is applied ([ADR 0002](docs/decisions/0002-obligation-text-is-verbatim-source-bytes.md)).
+  A span that does not resolve, whose digest does not match, or whose text has
+  been reworded is an authoring defect in the approved manifest and is refused
+  at load time, never reported as an observed `fail`. Spans are optional at
+  manifest schema v0.1; `validate` reports `source_spans_declared` including
+  `0`, and `verify` reports `source_spans_verified: null` when no manifest was
+  supplied to check them against.
 - Evidence is parsed and hashed from the same bounded byte snapshot.
 - Contract-source hashing is capped at 16 MiB; manifests, JSON evidence, plans,
   and receipts are capped at 2 MiB.
@@ -325,6 +338,7 @@ in validation, evaluation, or verification.
 - [Adversarial product review](docs/RED-TEAM.md)
 - [Discovery and independent-mapping pack](docs/DISCOVERY-PACK.md)
 - [Evidence-plan format and privacy profiles](docs/EVIDENCE-PLAN.md)
+- [ADR 0002: obligation text is verbatim source bytes](docs/decisions/0002-obligation-text-is-verbatim-source-bytes.md)
 - [Single-evidence check format](docs/SINGLE-EVIDENCE-CHECK.md)
 - [Threat model](docs/THREAT-MODEL.md)
 - [Responsible-tech audit](docs/RESPONSIBLE-TECH-AUDITS.md)

@@ -59,6 +59,14 @@ _OBLIGATION_FIELDS = {
     "no_evidence_reason",
     "source_locator",
 }
+#: A span is a locator into the approved source, so it is redacted from a
+#: portable plan exactly as `source_locator` is: the offset says where in the
+#: contract a clause sits, and its digest is a confirmable guess at the bytes.
+#: The member is emitted only when the manifest declared one, so a plan built
+#: from a manifest with no spans is byte-identical to the one built before
+#: spans existed and every committed plan fixture still verifies.
+_OPTIONAL_OBLIGATION_FIELDS = {"source_span"}
+_SOURCE_SPAN_FIELDS = {"length", "offset", "sha256"}
 _EVIDENCE_FIELDS = {"assertion", "attestation_binding", "id", "kind", "path"}
 _ASSERTION_FIELDS = {"expected", "expected_declared", "operator", "pointer"}
 _BINDING_FIELDS = {"allowed_statuses", "fixed_values", "required_fields"}
@@ -172,29 +180,28 @@ def build_evidence_plan(
             )
             for evidence in obligation.evidence
         ]
-        obligations.append(
-            {
-                "classification": obligation.classification.value,
-                "combination_rule": (
-                    "not_applicable"
-                    if obligation.classification is Classification.UNVERIFIABLE
-                    else "all_required"
-                ),
-                "criticality": obligation.criticality.value,
-                "evidence_requirements": requirements,
-                "id": obligation.obligation_id,
-                "no_evidence_reason": (
-                    (
-                        obligation.reason
-                        if include_local_details
-                        else "no_evaluable_evidence_declared"
-                    )
-                    if obligation.classification is Classification.UNVERIFIABLE
-                    else None
-                ),
-                "source_locator": obligation.clause_ref if include_local_details else None,
-            }
-        )
+        entry: dict[str, JsonValue] = {
+            "classification": obligation.classification.value,
+            "combination_rule": (
+                "not_applicable"
+                if obligation.classification is Classification.UNVERIFIABLE
+                else "all_required"
+            ),
+            "criticality": obligation.criticality.value,
+            "evidence_requirements": requirements,
+            "id": obligation.obligation_id,
+            "no_evidence_reason": (
+                (obligation.reason if include_local_details else "no_evaluable_evidence_declared")
+                if obligation.classification is Classification.UNVERIFIABLE
+                else None
+            ),
+            "source_locator": obligation.clause_ref if include_local_details else None,
+        }
+        if obligation.source_span is not None:
+            entry["source_span"] = (
+                obligation.source_span.to_dict() if include_local_details else None
+            )
+        obligations.append(entry)
     payload: dict[str, JsonValue] = {
         "contract_id": manifest.contract.contract_id,
         "contract_version": manifest.contract.version,
@@ -221,8 +228,17 @@ def _closed_object(
     value: JsonValue | None,
     fields: set[str],
     context: str,
+    *,
+    optional: set[str] | None = None,
 ) -> dict[str, JsonValue]:
-    if not isinstance(value, dict) or set(value) != fields:
+    """A JSON object whose key set is exactly ``fields``, plus any of ``optional``.
+
+    ``optional`` does not loosen the object -- an unknown key is refused as
+    before. It only lets a named member be absent, which is what keeps a plan
+    built from a manifest declaring no source spans byte-identical to the plans
+    built before spans existed.
+    """
+    if not isinstance(value, dict) or set(value) - (optional or set()) != fields:
         raise EvidencePlanError(f"{context} fields do not match the closed schema")
     return value
 
@@ -252,6 +268,22 @@ def _enum[EnumValue: StrEnum](
         return enum_type(item)
     except ValueError as exc:
         raise EvidencePlanError(f"{context}.{key} is unsupported") from exc
+
+
+def _byte_count(value: dict[str, JsonValue], key: str, context: str) -> int:
+    item = value.get(key)
+    if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+        raise EvidencePlanError(f"{context}.{key} must be a non-negative integer byte count")
+    return item
+
+
+def _validate_source_span(value: JsonValue, context: str) -> None:
+    span_context = f"{context}.source_span"
+    span = _closed_object(value, _SOURCE_SPAN_FIELDS, span_context)
+    _byte_count(span, "offset", span_context)
+    if _byte_count(span, "length", span_context) == 0:
+        raise EvidencePlanError(f"{span_context}.length must quote at least one byte")
+    _digest(span, "sha256", span_context)
 
 
 def _validate_assertion(value: JsonValue | None, context: str) -> None:
@@ -352,14 +384,23 @@ def _validate_obligation(
     detail_mode: str,
 ) -> tuple[str, list[str]]:
     context = f"evidence plan obligations[{index}]"
-    obligation = _closed_object(raw, _OBLIGATION_FIELDS, context)
+    obligation = _closed_object(
+        raw,
+        _OBLIGATION_FIELDS,
+        context,
+        optional=_OPTIONAL_OBLIGATION_FIELDS,
+    )
     obligation_id = _string(obligation, "id", context)
     source_locator = obligation.get("source_locator")
     if detail_mode == "portable_redacted":
         if source_locator is not None:
             raise EvidencePlanError(f"{context}.source_locator must be redacted")
+        if obligation.get("source_span") is not None:
+            raise EvidencePlanError(f"{context}.source_span must be redacted")
     else:
         _string(obligation, "source_locator", context)
+        if "source_span" in obligation:
+            _validate_source_span(obligation["source_span"], context)
     classification = _enum(obligation, "classification", context, Classification)
     expected_rule = (
         "not_applicable" if classification is Classification.UNVERIFIABLE else "all_required"

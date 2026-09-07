@@ -84,6 +84,28 @@ class Contract:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceSpan:
+    """Where in the approved source an obligation's quotation is, byte-exact.
+
+    `offset` and `length` are byte positions into the contract source the
+    manifest is already bound to by digest, and `sha256` is taken over exactly
+    those bytes. The loader checks all three, and checks that the obligation's
+    `text` is those bytes with **no normalization at all** -- see
+    `docs/decisions/0002-obligation-text-is-verbatim-source-bytes.md`.
+
+    A span is a locator into the source, so `plan.py`'s `portable_redacted`
+    profile omits it exactly as it omits `clause_ref`.
+    """
+
+    offset: int
+    length: int
+    sha256: str
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {"length": self.length, "offset": self.offset, "sha256": self.sha256}
+
+
+@dataclass(frozen=True, slots=True)
 class EvidenceSpec:
     evidence_id: str
     kind: EvidenceKind
@@ -117,6 +139,12 @@ class Obligation:
     owner: str
     reason: str | None
     evidence: tuple[EvidenceSpec, ...]
+    #: Optional at manifest schema v0.1 so that every manifest written before
+    #: spans existed normalizes, hashes, and evaluates to exactly what it did
+    #: before. The key is emitted only when one is declared, so an absent span
+    #: is absent from the normalized document rather than present as a null --
+    #: which is what keeps `manifest_sha256` stable for those manifests.
+    source_span: SourceSpan | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
         value: dict[str, JsonValue] = {
@@ -130,6 +158,8 @@ class Obligation:
         }
         if self.reason is not None:
             value["reason"] = self.reason
+        if self.source_span is not None:
+            value["source_span"] = self.source_span.to_dict()
         return value
 
 
@@ -139,6 +169,16 @@ class Manifest:
     obligations: tuple[Obligation, ...]
     manifest_path: str
     manifest_sha256: str
+
+    @property
+    def source_spans_declared(self) -> int:
+        """How many obligations bind their text to a span of the approved source.
+
+        Reported rather than inferred. Zero declared spans and a manifest whose
+        spans were never checked are different states, and a caller that only
+        ever saw "no span errors" cannot tell them apart.
+        """
+        return sum(1 for item in self.obligations if item.source_span is not None)
 
     def normalized_dict(self) -> dict[str, JsonValue]:
         return {
@@ -174,9 +214,10 @@ class ObligationResult:
     criticality: Criticality
     status: ResultStatus
     evidence: tuple[EvidenceResult, ...]
+    source_span: SourceSpan | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
-        return {
+        value: dict[str, JsonValue] = {
             "classification": self.classification.value,
             "clause_ref": self.clause_ref,
             "criticality": self.criticality.value,
@@ -184,6 +225,9 @@ class ObligationResult:
             "id": self.obligation_id,
             "status": self.status.value,
         }
+        if self.source_span is not None:
+            value["source_span"] = self.source_span.to_dict()
+        return value
 
 
 @dataclass(frozen=True, slots=True)

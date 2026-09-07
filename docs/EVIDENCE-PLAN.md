@@ -59,23 +59,33 @@ Unverifiable obligations have no evidence requirements.
 `portable_redacted` replaces:
 
 - source locators with `null`;
+- source spans with `null`, when the manifest declared one;
 - evidence filesystem paths with `null`; and
 - free-text unverifiable reasons with
   `no_evaluable_evidence_declared`.
+
+A `source_span` is a byte offset, length, and digest into the approved contract
+source (ADR 0002). It is a locator into the document, so it is redacted exactly
+as `clause_ref` is: the offset says where in the contract a clause sits, and the
+digest is a confirmable guess at the bytes there. The member is present only
+when the manifest declared one, so a plan built from a manifest with no spans is
+byte-identical to the plans built before spans existed.
 
 It deliberately retains assertion thresholds and attestation bindings because a
 collector otherwise cannot prepare the right artifact. Those values may still
 be sensitive. “Portable” means reduced location leakage, not approved for public
 release.
 
-`local_sensitive` includes the exact manifest-declared source locators, relative
-evidence paths, and reasons. Local paths remain lexical relative paths beneath a
+`local_sensitive` includes the exact manifest-declared source locators, source
+spans, relative evidence paths, and reasons. Local paths remain lexical relative paths beneath a
 future evidence root; absolute, traversal, Windows-drive/UNC, backslash,
 colon/URI, dot-segment, and empty-segment paths fail plan generation.
 
 Neither profile contains obligation prose, accountable-owner fields, source
 bytes, evidence bytes, evidence hashes, reviewer-entered content, a working
-directory, or the output path.
+directory, or the output path. A span's digest is not source bytes, but it does
+let a holder of a candidate document confirm a guess at one clause of it; that
+is why it is redacted from the portable profile rather than kept.
 
 ## Fixed limitations
 

@@ -68,7 +68,7 @@ def test_committed_example_pins_its_receipt_payload_digest(example_manifest: Pat
 
     receipt = build_receipt(evaluation, generated_at="2026-01-01T00:00:00+00:00")
     assert receipt["payload_sha256"] == (
-        "17aed9333cfafdc2c4dd36a9ec786653f58ae24f49155bca991297ca14c1a821"
+        "e77f409596702272a8a9c1e478b7bd159d227c29cd15bb6bdad1bab759c2e486"
     ), _WIRE_FORMAT_CHANGED
 
 
@@ -89,7 +89,7 @@ def test_missing_evidence_receipt_pins_its_payload_digest(copied_example: Path) 
 
     receipt = build_receipt(evaluation, generated_at="2026-01-01T00:00:00+00:00")
     assert receipt["payload_sha256"] == (
-        "b064f79b6206b02f34cf9fca27bb4401c2e35917bdcc22dc338a4fea5c33f7ff"
+        "2b045cb65929be44394516cf2a4f963d782ddd084c418951c36a12a4a2b7739b"
     ), _WIRE_FORMAT_CHANGED
 
 

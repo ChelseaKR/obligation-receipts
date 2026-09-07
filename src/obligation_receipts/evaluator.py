@@ -289,6 +289,7 @@ def _evaluate_obligation(
             criticality=obligation.criticality,
             status=ResultStatus.UNVERIFIABLE,
             evidence=(),
+            source_span=obligation.source_span,
         )
     if obligation.classification is Classification.AUTOMATED:
         evidence = tuple(_evaluate_assertion(spec, evidence_root) for spec in obligation.evidence)
@@ -304,6 +305,7 @@ def _evaluate_obligation(
         criticality=obligation.criticality,
         status=_combine_evidence(evidence),
         evidence=evidence,
+        source_span=obligation.source_span,
     )
 
 
