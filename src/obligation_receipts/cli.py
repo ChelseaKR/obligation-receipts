@@ -235,6 +235,11 @@ def _validate(paths: list[Path]) -> int:
                 "contract_id": manifest.contract.contract_id,
                 "manifest_sha256": manifest.manifest_sha256,
                 "obligation_count": len(manifest.obligations),
+                # Reported even when it is zero. A manifest that binds no
+                # quotation to the source and a manifest whose spans were never
+                # looked at are different states, and only one of them is a
+                # statement about this manifest.
+                "source_spans_declared": manifest.source_spans_declared,
                 "status": "valid",
             }
         )
@@ -458,8 +463,16 @@ def _verify(
         raise ReceiptError("--manifest and --evidence-root must be supplied together")
     receipt = load_receipt(receipt_path)
     replay: dict[str, JsonValue] | None = None
+    # `null`, not `0`, when no manifest was supplied. Without a manifest the
+    # approved source is not in hand, so no quotation was checked against it --
+    # which is a different fact from "the manifest declared no spans", and
+    # rendering the first as the second is exactly the absence-as-a-value error
+    # this repository refuses inside a receipt.
+    spans_verified: int | None = None
     if manifest_path is not None and evidence_root is not None:
-        replay = evaluate_manifest(load_manifest(manifest_path), evidence_root).payload()
+        manifest = load_manifest(manifest_path)
+        spans_verified = manifest.source_spans_declared
+        replay = evaluate_manifest(manifest, evidence_root).payload()
     # Reading the receipt, manifest, and evidence root above can only fail as an
     # input error. From here on every failure is a finding about the receipt
     # itself, so it must not be reported as one.
@@ -474,6 +487,7 @@ def _verify(
         {
             "payload_sha256": payload_sha256,
             "replayed": replay is not None,
+            "source_spans_verified": spans_verified,
             "status": "verified",
         }
     )

@@ -69,6 +69,14 @@ _OBLIGATION_FIELDS = {
     "id",
     "status",
 }
+#: Present only when the manifest bound that obligation's text to a span of the
+#: approved source. Optional for the same reason `evidence_lock_sha256` is: a
+#: receipt written before spans existed carries none, and must verify
+#: byte-identically. The reverse is again deliberately not compatible -- a
+#: verifier that does not know this member refuses a receipt carrying it,
+#: because it cannot re-check the binding the receipt asserts.
+_OPTIONAL_OBLIGATION_FIELDS = {"source_span"}
+_SOURCE_SPAN_FIELDS = {"length", "offset", "sha256"}
 _EVIDENCE_FIELDS = {"artifact_sha256", "detail", "id", "kind", "status"}
 
 
@@ -160,6 +168,22 @@ def _validate_evidence(value: JsonValue, context: str) -> tuple[str, EvidenceKin
     return evidence_id, kind, status
 
 
+def _byte_count(value: dict[str, JsonValue], key: str, context: str) -> int:
+    item = value.get(key)
+    if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+        raise ReceiptError(f"{context}.{key} must be a non-negative integer byte count")
+    return item
+
+
+def _validate_source_span(value: JsonValue, context: str) -> None:
+    span_context = f"{context}.source_span"
+    span = _closed_object(value, _SOURCE_SPAN_FIELDS, span_context)
+    _byte_count(span, "offset", span_context)
+    if _byte_count(span, "length", span_context) == 0:
+        raise ReceiptError(f"{span_context}.length must quote at least one byte")
+    _required_digest(span, "sha256", span_context)
+
+
 def _combined_status(statuses: list[ResultStatus]) -> ResultStatus:
     for status in (
         ResultStatus.FAIL,
@@ -176,9 +200,19 @@ def _validate_obligation(
     index: int,
 ) -> tuple[str, Criticality, ResultStatus, list[str]]:
     context = f"receipt payload obligations[{index}]"
-    obligation = _closed_object(value, _OBLIGATION_FIELDS, context)
+    obligation = _closed_object(
+        value,
+        _OBLIGATION_FIELDS,
+        context,
+        optional=_OPTIONAL_OBLIGATION_FIELDS,
+    )
     obligation_id = _required_string(obligation, "id", context)
     _required_string(obligation, "clause_ref", context)
+    if "source_span" in obligation:
+        # Present-and-null is refused rather than read as absent: the two
+        # produce different payload digests, and a receipt that carries the
+        # member is asserting a binding a verifier must be able to re-check.
+        _validate_source_span(obligation["source_span"], context)
     classification = _enum_value(obligation, "classification", context, Classification)
     criticality = _enum_value(obligation, "criticality", context, Criticality)
     status = _enum_value(obligation, "status", context, ResultStatus)

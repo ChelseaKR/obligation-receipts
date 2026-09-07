@@ -24,10 +24,12 @@ from obligation_receipts.models import (
     JsonValue,
     Manifest,
     Obligation,
+    SourceSpan,
 )
 from obligation_receipts.paths import (
     BoundedPathError,
     hash_bounded_file,
+    read_bounded_file,
     read_regular_file,
     validate_portable_relative_path,
 )
@@ -56,8 +58,10 @@ _OBLIGATION_KEYS = {
     "owner",
     "reason",
     "evidence",
+    "source_span",
 }
 _EVIDENCE_KEYS = {"id", "kind", "path", "pointer", "operator", "expected"}
+_SPAN_KEYS = {"offset", "length", "sha256"}
 
 
 class ManifestError(ValueError):
@@ -90,7 +94,20 @@ def _identifier(value: Mapping[str, object], key: str, context: str) -> str:
     return item
 
 
-def _parse_contract(raw: object, manifest_dir: Path) -> Contract:
+def _parse_contract(
+    raw: object, manifest_dir: Path, *, read_source: bool
+) -> tuple[Contract, bytes]:
+    """Validate the contract block and bind it to its source.
+
+    ``read_source`` is set only when at least one obligation declares a
+    ``source_span``, because that is the only case where the source's *content*
+    is needed rather than its digest. Without a span the source is still hashed
+    a 64 KiB chunk at a time by ``hash_bounded_file``, so a 16 MiB contract PDF
+    never enters memory for a manifest that quotes nothing from it. The two
+    paths compute the same digest over the same bytes; only the buffering
+    differs. Both raise through the one ``except`` below, so a source that
+    cannot be read safely is a ``ManifestError`` either way.
+    """
     value = _mapping(raw, "contract")
     _exact_keys(value, _CONTRACT_KEYS, "contract")
     if set(value) != _CONTRACT_KEYS:
@@ -100,13 +117,22 @@ def _parse_contract(raw: object, manifest_dir: Path) -> Contract:
     if not _SHA256_PATTERN.fullmatch(source_sha256):
         raise ManifestError("contract.source_sha256 must be a lowercase SHA-256 digest")
     source_path = _required_string(value, "source_path", "contract")
+    source_bytes = b""
     try:
         validate_portable_relative_path(source_path)
-        _, actual_hash = hash_bounded_file(
-            manifest_dir,
-            source_path,
-            max_bytes=_MAX_SOURCE_BYTES,
-        )
+        if read_source:
+            _, source_bytes = read_bounded_file(
+                manifest_dir,
+                source_path,
+                max_bytes=_MAX_SOURCE_BYTES,
+            )
+            actual_hash = sha256_bytes(source_bytes)
+        else:
+            _, actual_hash = hash_bounded_file(
+                manifest_dir,
+                source_path,
+                max_bytes=_MAX_SOURCE_BYTES,
+            )
     except (BoundedPathError, FileNotFoundError) as exc:
         raise ManifestError(f"contract source cannot be opened: {exc}") from exc
     if actual_hash != source_sha256:
@@ -114,7 +140,7 @@ def _parse_contract(raw: object, manifest_dir: Path) -> Contract:
             "contract source digest does not match the approved manifest; "
             f"expected {source_sha256}, got {actual_hash}"
         )
-    return Contract(
+    contract = Contract(
         contract_id=_identifier(value, "id", "contract"),
         title=_required_string(value, "title", "contract"),
         version=_required_string(value, "version", "contract"),
@@ -123,6 +149,7 @@ def _parse_contract(raw: object, manifest_dir: Path) -> Contract:
         source_path=source_path,
         source_sha256=source_sha256,
     )
+    return contract, source_bytes
 
 
 def _evidence_path(value: Mapping[str, object], context: str) -> str:
@@ -174,6 +201,69 @@ def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
     )
 
 
+def _byte_count(value: Mapping[str, object], key: str, context: str) -> int:
+    item = value.get(key)
+    # `isinstance(True, int)` is True, and TOML has a boolean type, so
+    # `offset = true` would otherwise be accepted as offset 1.
+    if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+        raise ManifestError(f"{context}.{key} must be a non-negative integer byte count")
+    return item
+
+
+def _parse_source_span(value: Mapping[str, object], context: str) -> SourceSpan | None:
+    raw = value.get("source_span")
+    if raw is None:
+        return None
+    span_context = f"{context}.source_span"
+    span = _mapping(raw, span_context)
+    _exact_keys(span, _SPAN_KEYS, span_context)
+    missing = sorted(_SPAN_KEYS - set(span))
+    if missing:
+        raise ManifestError(f"{span_context} is missing field(s): {', '.join(missing)}")
+    offset = _byte_count(span, "offset", span_context)
+    length = _byte_count(span, "length", span_context)
+    if length == 0:
+        raise ManifestError(f"{span_context}.length must quote at least one byte")
+    digest = _required_string(span, "sha256", span_context)
+    if not _SHA256_PATTERN.fullmatch(digest):
+        raise ManifestError(f"{span_context}.sha256 must be a lowercase SHA-256 digest")
+    return SourceSpan(offset=offset, length=length, sha256=digest)
+
+
+def _bind_source_spans(obligations: tuple[Obligation, ...], source_bytes: bytes) -> None:
+    """Check every declared span against the source the manifest is bound to.
+
+    Every failure here is a defect in the *approved manifest* -- a quotation
+    that is not in the document it claims to come from -- so every one is a
+    `ManifestError` raised before anything is evaluated, never an observed
+    `fail` in a receipt. That is the same line `pointer.is_well_formed` draws.
+    """
+    for index, obligation in enumerate(obligations):
+        span = obligation.source_span
+        if span is None:
+            continue
+        context = f"obligations[{index}] ({obligation.obligation_id})"
+        end = span.offset + span.length
+        if end > len(source_bytes):
+            raise ManifestError(
+                f"{context} source_span runs past the end of the contract source: "
+                f"bytes {span.offset}..{end} of {len(source_bytes)}"
+            )
+        quoted = source_bytes[span.offset : end]
+        actual_digest = sha256_bytes(quoted)
+        if actual_digest != span.sha256:
+            raise ManifestError(
+                f"{context} source_span digest does not match the bytes it points at; "
+                f"expected {span.sha256}, got {actual_digest}"
+            )
+        if quoted != obligation.text.encode("utf-8"):
+            raise ManifestError(
+                f"{context} text is not the bytes at its declared source_span; "
+                "the quotation is compared to the source verbatim and no "
+                "normalization is applied"
+            )
+
+
 def _parse_obligation(raw: object, index: int) -> Obligation:
     context = f"obligations[{index}]"
     value = _mapping(raw, context)
@@ -220,6 +310,7 @@ def _parse_obligation(raw: object, index: int) -> Obligation:
         owner=_required_string(value, "owner", context),
         reason=reason,
         evidence=evidence,
+        source_span=_parse_source_span(value, context),
     )
 
 
@@ -242,13 +333,27 @@ def load_manifest(path: Path) -> Manifest:
     except tomllib.TOMLDecodeError as exc:
         raise ManifestError(f"manifest is not valid TOML: {exc}") from exc
     _exact_keys(raw, _ROOT_KEYS, "manifest")
-    contract = _parse_contract(raw.get("contract"), resolved_path.parent)
     obligations_raw = raw.get("obligations")
+    # Read ahead for span declarations before the contract is bound, so that
+    # `_parse_contract` knows whether the source's bytes are needed or only its
+    # digest. This is a structural peek at unvalidated input and asserts
+    # nothing: a `source_span` that is not a table, or is missing a field, is
+    # still refused by `_parse_source_span` with its own message.
+    spans_declared = isinstance(obligations_raw, list) and any(
+        isinstance(item, Mapping) and item.get("source_span") is not None
+        for item in obligations_raw
+    )
+    contract, source_bytes = _parse_contract(
+        raw.get("contract"),
+        resolved_path.parent,
+        read_source=spans_declared,
+    )
     if not isinstance(obligations_raw, list) or not obligations_raw:
         raise ManifestError("manifest.obligations must be a non-empty array of tables")
     obligations = tuple(
         _parse_obligation(item, index) for index, item in enumerate(obligations_raw)
     )
+    _bind_source_spans(obligations, source_bytes)
     ids = [item.obligation_id for item in obligations]
     if len(ids) != len(set(ids)):
         raise ManifestError("obligation ids must be unique")

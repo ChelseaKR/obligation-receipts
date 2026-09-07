@@ -10,10 +10,7 @@ source_sha256 = "b94a87890d23aaedc93c143a00d5fc4f96f7ed09a9f839bb4aa8d9c841562be
 [[obligations]]
 id = "a1-zero-critical-violations"
 clause_ref = "A-1"
-text = """
-The delivered service must have zero critical automated accessibility
-violations in the approved acceptance run."""
-source_span = { offset = 54, length = 112, sha256 = "cde928ac14922fe02bebba48e2434a1c4d48117baf6f1cd209f65711c7bd9bec" }
+text = "The delivered service must have zero critical automated accessibility violations."
 classification = "automated"
 criticality = "must"
 owner = "Agency acceptance lead"
@@ -29,10 +26,7 @@ expected = 0
 [[obligations]]
 id = "a2-human-workflow-review"
 clause_ref = "A-2"
-text = """
-A named accessibility specialist must complete the approved keyboard and
-screen-reader workflow review before acceptance."""
-source_span = { offset = 173, length = 121, sha256 = "e5039c65405436de326a5f36e865565dd68f430fa1b552e3d110f91a995a441a" }
+text = "A named specialist must complete the approved keyboard and screen-reader workflow review."
 classification = "manual_review"
 criticality = "must"
 owner = "Accessibility lead"
@@ -45,10 +39,7 @@ path = "manual/keyboard-review.json"
 [[obligations]]
 id = "a3-external-acr"
 clause_ref = "A-3"
-text = """
-The supplier must provide a current external accessibility conformance
-report for the delivered release."""
-source_span = { offset = 301, length = 104, sha256 = "3f9a448c1d41ac588b51eb29a85ec7881c1f71f4c23b782e24c7f59b3cba9efb" }
+text = "The supplier must provide a current external accessibility conformance report."
 classification = "external_evidence"
 criticality = "should"
 owner = "Contracting officer representative"
@@ -62,7 +53,6 @@ path = "external/acr-attestation.json"
 id = "a4-intuitive"
 clause_ref = "A-4"
 text = "The service should be intuitive."
-source_span = { offset = 412, length = 32, sha256 = "d7f9f8acb55a600dea17b14206cb7bce1f46b38384251fcc0f6a6682bbfa4b9b" }
 classification = "unverifiable"
 criticality = "should"
 owner = "Product owner"

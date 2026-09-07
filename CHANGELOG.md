@@ -33,6 +33,35 @@ All notable changes will be documented here.
 
 ### Added
 
+- **An obligation can now be bound to the span of the approved source it quotes,
+  and nothing could check that before.** `Obligation.text` and `clause_ref` were
+  validated only as non-empty strings; `_parse_contract` opened the contract
+  source and hashed it, but never read a byte of it for content. A verifier could
+  prove the receipt matched the manifest, and the manifest matched the document's
+  digest, and still not prove the quotation was in the document — so a typo, a
+  paraphrase, a clause pasted from a superseded version, or a sentence nobody
+  agreed to reached a counterparty as an authoritative-looking quotation with a
+  matching digest beside it.
+  Each obligation may now declare `source_span = { offset, length, sha256 }`.
+  The loader resolves it against the source the manifest is already bound to,
+  re-derives the digest, and requires `text` to be **exactly** those bytes with
+  no normalization of any kind ([ADR 0002](docs/decisions/0002-obligation-text-is-verbatim-source-bytes.md)).
+  Every failure is a `ManifestError` raised before anything is evaluated, never
+  an observed `fail`. The receipt payload and the `local_sensitive` evidence plan
+  carry the span so replay re-checks it; `portable_redacted` omits it, as it does
+  every other source locator.
+  Measured on the committed example: **two of its four obligation texts were
+  already wrong.** A-1 dropped "in the approved acceptance run" and A-2 dropped
+  "accessibility" and "before acceptance". Both now quote the source verbatim,
+  which moved the example's `manifest_sha256`, its two attestation bindings, and
+  the two pinned receipt payload digests.
+  Spans are optional at manifest schema v0.1:
+  `tests/fixtures/manifest-without-source-spans.toml` is the example exactly as
+  it was written before spans existed and still normalizes to
+  `90f93af7…`, pinned as a test. `validate` reports `source_spans_declared`
+  including `0`; `verify` reports `source_spans_verified: null` when no manifest
+  was supplied, because "not checked" and "none declared" are different facts.
+
 - A verification record in `docs/discovery/public-sample-candidates.md`: both
   frozen sources re-fetched from their official URLs on 2026-09-06, byte counts
   and SHA-256 digests reproduced exactly 46 days after retrieval, and each of the
