@@ -14,38 +14,30 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
-    # `release.yml` pins a reusable workflow from ChelseaKR/portfolio-standards,
-    # a *private* repository. Dependabot's repo-scoped credentials cannot read
-    # it. The proxy logs `403 ... Either the repo doesn't exist, or Dependabot
-    # doesn't have access to it`, the updater records
-    # `git_dependencies_not_reachable` for that one dependency, and a single
-    # recorded error fails the entire run, even though every other action was
-    # checked and its pull requests were opened. That is what made the weekly
-    # `Dependabot Updates` job red on 2026-07-24, 07-31, 08-07, 08-14 and 08-21
-    # while the sibling `pip` job stayed green the whole time.
+    # `release.yml` pins a reusable workflow from ChelseaKR/.github. It used to
+    # pin the same workflow in ChelseaKR/portfolio-standards, a *private*
+    # repository that Dependabot's repo-scoped credentials could not read: the
+    # proxy logged `403 ... Either the repo doesn't exist, or Dependabot doesn't
+    # have access to it`, the updater recorded `git_dependencies_not_reachable`
+    # for that one dependency, and a single recorded error failed the entire
+    # run even though every other action had been checked. That is what made the
+    # weekly `Dependabot Updates` job red on 2026-07-24, 07-31, 08-07, 08-14 and
+    # 08-21 while the sibling `pip` job stayed green throughout.
     #
-    # An `ignore` entry carrying only `dependency-name`, with no `versions` and
-    # no `update-types`, means "every version". Dependabot drops such a
-    # dependency in `Job#allowed_update?` before it builds an update checker, so
-    # the unreachable fetch never happens, no error is recorded, and the run
-    # exits 0. The file parser's own reachability probe still logs the 403, but
-    # `GitCommitChecker#git_repo_reachable?` swallows that one.
+    # That is no longer the reason. The pin now names a *public* repository,
+    # which Dependabot can read, so the unreachable fetch cannot happen and the
+    # weekly failure this block was written to prevent is gone.
     #
-    # What this trades away: this single pin is no longer bumped automatically.
-    # It must be bumped by hand, exactly like the same repository's pin in
-    # `.github/zizmor.yml`, which is disabled for the same underlying reason.
-    # `tests/test_supply_chain.py` fails if this entry and the `uses:` line in
-    # `release.yml` ever drift apart, so a rename cannot quietly restore the
-    # weekly failure.
+    # The entry is kept because `tests/test_supply_chain.py` requires every
+    # cross-repository reusable-workflow pin to be ignored, and relaxing that
+    # rule is a decision about the gate rather than a side effect of moving a
+    # pin. What it costs is what it always cost: this pin is not bumped
+    # automatically and must be bumped by hand.
     #
-    # To restore automatic updates, give Dependabot a credential that can read
-    # portfolio-standards: store a fine-grained PAT with read access to that
-    # repository as a *Dependabot* secret, add a top-level `registries:` block
-    # of `type: git` against https://github.com with `username: x-access-token`
-    # and that secret as the password, reference the registry from this update
-    # entry, and delete this `ignore` block. The organization-level "Grant
-    # Dependabot access to private repositories" setting is not an option here:
-    # it exists only for organizations, and both repositories are owned by a
-    # personal account.
+    # To restore automatic updates, delete this `ignore` block and amend
+    # `test_dependabot_ignore_list_matches_the_cross_repo_reusable_workflow_pins`
+    # so it requires an ignore entry only for pins Dependabot genuinely cannot
+    # read. No credential, registry block or PAT is needed any more -- the
+    # workflow is public.
     ignore:
-      - dependency-name: ChelseaKR/portfolio-standards/.github/workflows/release-authorize.yml
+      - dependency-name: ChelseaKR/.github/.github/workflows/release-authorize.yml
