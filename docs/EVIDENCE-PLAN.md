@@ -54,6 +54,53 @@ fields, and fixed contract/version/manifest/obligation/evidence-item binding
 values.
 Unverifiable obligations have no evidence requirements.
 
+## The assertion vocabulary
+
+`json_assertion` evidence declares one JSON pointer, one operator from a closed
+set, and — for every operator except `exists` — one expected value. The
+vocabulary is closed and non-executable: there is no expression language, no
+regex, no arithmetic, and no comparison between two pointers or two files.
+
+| operator | `expected` | passes when |
+| --- | --- | --- |
+| `eq`, `ne` | any bounded JSON value | the resolved value is / is not that value |
+| `gt`, `gte`, `lt`, `lte` | a number | the resolved number orders that way against it |
+| `exists` | *not allowed* | the pointer resolves at all |
+| `in`, `not_in` | a non-empty array | the resolved value is / is not a member |
+| `between` | `[low, high]`, numbers, `low <= high` | the resolved number is within, **inclusive at both ends** |
+| `length` | `{operator = <comparison>, value = <non-negative integer>}` | the array, string, or object has that many elements, characters, or members |
+| `type` | one of `null`, `boolean`, `number`, `string`, `array`, `object` | the resolved value is of that JSON type |
+
+`length`'s comparison is one of `eq`, `ne`, `gt`, `gte`, `lt`, `lte`. It is a
+fixed two-key table, not an expression: two required keys, no nesting, no third
+key. `"the results array is non-empty"` is
+`operator = "length"`, `expected = {operator = "gte", value = 1}`.
+
+**Every one of these shapes is enforced when the manifest loads**, by every
+command that loads one. An `expected` the operator cannot use — an empty array
+for `in`, inverted bounds for `between`, `integer` for `type` — is a
+`ManifestError` about the approved manifest, never an observed `fail` in a
+receipt. That is the same line a malformed pointer is held to, and for the same
+reason: a supplier must never be told their evidence failed a comparison that
+was never made.
+
+Three behaviours are worth stating because the alternative reading is tempting:
+
+- **A value with no length is not length zero.** `length lte 0` against the
+  number `7` is a `fail`, not a pass. Collapsing "this has no length" into "its
+  length is 0" would publish a measurement nobody took.
+- **A boolean is never a number.** `type` reports `true` as `boolean`, and `in`
+  will not match a resolved `true` against `expected = [1]`, even though Python
+  considers `1 == True`.
+- **`integer` is not an available type name.** JSON has one number type, so a
+  manifest that could say `integer` would make `1.0` a `fail` against `1` for a
+  difference no JSON parser preserves.
+
+Composition — `all_of` and `any_of` over several assertions — is **not** in the
+vocabulary. It needs a nested assertion shape that the plan, the single-evidence
+check and the receipt do not carry, and it is tracked at
+[#64](https://github.com/ChelseaKR/obligation-receipts/issues/64).
+
 ## Privacy profiles
 
 `portable_redacted` replaces:

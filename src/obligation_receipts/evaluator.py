@@ -62,16 +62,59 @@ _ORDERING: dict[str, Callable[[float, float], bool]] = {
 
 _EQUALITY = frozenset({"eq", "ne"})
 
+#: Membership in a literal set declared by the manifest.
+_SET_MEMBERSHIP = frozenset({"in", "not_in"})
+
+#: Operators whose answer is computed from the resolved value's *shape* rather
+#: than from an ordering over it.
+_SHAPE = frozenset({"between", "length", "type"})
+
 #: Every operator this build can answer. `exists` is included because
 #: `_evaluate_assertion` answers it from the pointer's found flag, one level up
 #: -- it is implemented, just not here.
+#:
+#: Derived from the four sets that dispatch, never typed out again, so an
+#: operator can only appear here by having somewhere to go.
 #:
 #: `tests/test_misuse_boundaries.py` asserts this equals
 #: `models.ASSERTION_OPERATORS`, the vocabulary the manifest loader and the
 #: evidence plan accept. The two drifting apart is not a crash: it is a
 #: `fail` in a receipt, against a supplier, for an assertion that was never
 #: evaluated.
-IMPLEMENTED_OPERATORS = frozenset(_EQUALITY | set(_ORDERING) | {"exists"})
+IMPLEMENTED_OPERATORS = frozenset(
+    _EQUALITY | set(_ORDERING) | _SET_MEMBERSHIP | _SHAPE | {"exists"}
+)
+
+
+def _json_type_name(value: JsonValue | None) -> str:
+    """The RFC 8259 type of a resolved value, in the same names `type` accepts.
+
+    Booleans are tested before numbers, because `isinstance(True, int)` is True
+    and reporting `true` as a `number` would let `type` pass on a value the
+    manifest author would not call one.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int | float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    return "array" if isinstance(value, list) else "object"
+
+
+def _same_json_value(left: JsonValue | None, right: JsonValue | None) -> bool:
+    """Equality for set membership, with `true` and `1` held apart.
+
+    `1 == True` in Python, so a plain `in` would let `expected = [1]` match a
+    resolved `true`. JSON does not consider those the same value and neither
+    may a receipt: reporting a boolean as a member of a numeric set is an
+    observed `pass` for a comparison nobody wrote.
+    """
+    if isinstance(left, bool) or isinstance(right, bool):
+        return isinstance(left, bool) and isinstance(right, bool) and left is right
+    return bool(left == right)
 
 
 class UnsupportedOperatorError(ManifestError):
@@ -102,11 +145,13 @@ def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None
     reached only for an operator this module implements. An operator it does
     not implement raises.
     """
-    if operator not in _EQUALITY and operator not in _ORDERING:
+    if operator not in IMPLEMENTED_OPERATORS or operator == "exists":
         raise UnsupportedOperatorError(
             f"operator {operator!r} is in the accepted vocabulary and has no implementation; "
             "no evaluation was made"
         )
+    if operator in _SET_MEMBERSHIP or operator in _SHAPE:
+        return _compare_extended(actual, operator, expected)
     if isinstance(actual, bool) or isinstance(expected, bool):
         equal = isinstance(actual, bool) and isinstance(expected, bool) and actual is expected
         return equal if operator == "eq" else not equal if operator == "ne" else False
@@ -117,6 +162,59 @@ def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None
     if not isinstance(actual, int | float) or not isinstance(expected, int | float):
         return False
     return _ORDERING[operator](actual, expected)
+
+
+def _compare_extended(actual: JsonValue | None, operator: str, expected: JsonValue | None) -> bool:
+    """The set and shape operators added under #64.
+
+    Split from `_compare` rather than inlined so that the equality/ordering path
+    -- which every manifest written before this vocabulary existed uses -- keeps
+    exactly the shape it had, and so neither half grows past the complexity the
+    linter allows. Reached only for an operator in `_SET_MEMBERSHIP | _SHAPE`.
+
+    Every `return False` here is a real answer about a value of the wrong type,
+    never a stand-in for "could not compare": the manifest loader has already
+    refused an `expected` this function could not use, so a shape it cannot
+    handle is a fact about the *evidence*, which is what a receipt reports.
+    """
+    if operator in _SET_MEMBERSHIP:
+        # `expected` is a non-empty array: the manifest loader refuses anything
+        # else, so this cannot silently answer `False` against a scalar.
+        members = expected if isinstance(expected, list) else []
+        present = any(_same_json_value(actual, member) for member in members)
+        return present if operator == "in" else not present
+    if operator == "between":
+        # Inclusive on both ends, and numbers only. A string between two numbers
+        # is `False` -- a real answer about a value of the wrong type -- and the
+        # bounds themselves are guaranteed numeric and ordered by the loader.
+        if isinstance(actual, bool) or not isinstance(actual, int | float):
+            return False
+        low, high = cast("list[float]", expected)
+        return low <= actual <= high
+    if operator == "length":
+        return _compare_length(actual, expected)
+    return _json_type_name(actual) == expected
+
+
+def _compare_length(actual: JsonValue | None, expected: JsonValue | None) -> bool:
+    """Length of an array, a string, or an object's member count.
+
+    A value with no length -- a number, a boolean, `null` -- is `False` rather
+    than length zero. Treating "this has no length" as "its length is 0" would
+    let `length lte 0` pass against a number, which is the absence-rendered-as-a
+    -value error in miniature: a missing measurement published as a real one.
+    """
+    if isinstance(actual, bool) or not isinstance(actual, str | list | dict):
+        return False
+    comparison = cast("dict[str, JsonValue]", expected)
+    wanted = cast(int, comparison["value"])
+    name = cast(str, comparison["operator"])
+    measured = len(actual)
+    if name == "eq":
+        return measured == wanted
+    if name == "ne":
+        return measured != wanted
+    return _ORDERING[name](measured, wanted)
 
 
 def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResult:

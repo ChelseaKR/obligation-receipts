@@ -33,6 +33,34 @@ All notable changes will be documented here.
 
 ### Added
 
+- **The closed assertion vocabulary gains `in`, `not_in`, `between`, `length` and
+  `type`.** `json_assertion` supported seven operators, so "status is one of passed or
+  skipped", "version is between 1.2 and 2.0" and "the results array is non-empty" each
+  became manual review or several obligations. All five keep the existing flat
+  pointer/operator/expected shape, so the evidence plan, the single-evidence check and
+  the receipt carry them with no new field. Still closed and non-executable: no regex,
+  no arithmetic, no comparison between two pointers.
+
+  The whole extension lives in what `expected` may be, per operator, and every shape is
+  enforced **at load time by every command that loads a manifest** -- an empty array for
+  `in`, inverted bounds for `between`, a non-integer length, `integer` for `type`. Each
+  is a `ManifestError` about the approved manifest rather than an observed `fail` in a
+  receipt, which is the same line `pointer.is_well_formed` draws and the same failure
+  `models.ASSERTION_OPERATORS` was consolidated to prevent.
+
+  Three behaviours are asserted rather than assumed, because the wrong reading is the
+  tempting one. **A value with no length is not length zero**: `length lte 0` against the
+  number `7` is a `fail`, since collapsing "has no length" into "length is 0" would
+  publish a measurement nobody took. **A boolean is never a number**: `in` will not match
+  a resolved `true` against `expected = [1]` even though Python considers `1 == True`,
+  and `type` reports it as `boolean`. **`integer` is not an available type name**,
+  because JSON has one number type and a manifest that could say `integer` would make
+  `1.0` a `fail` against `1` for a difference no JSON parser preserves.
+
+  Composition (`all_of`, `any_of`) is not included: it needs a nested assertion shape the
+  plan, the single-evidence check and the receipt do not carry. #64 stays open for it.
+
+
 - **An obligation can now be bound to the span of the approved source it quotes,
   and nothing could check that before.** `Obligation.text` and `clause_ref` were
   validated only as non-empty strings; `_parse_contract` opened the contract
