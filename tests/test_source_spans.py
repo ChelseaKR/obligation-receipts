@@ -207,10 +207,33 @@ def test_a_manifest_declaring_no_spans_normalizes_to_exactly_what_it_did_before(
     assert all("source_span" not in item.to_dict() for item in manifest.obligations)
 
 
-def test_a_receipt_for_a_span_free_manifest_carries_no_span_member(
+#: The payload digest the committed example produced before spans existed, taken
+#: from `tests/test_receipt.py` as it stood at 6aa0e87. Reproducing it from a
+#: pre-spans manifest and pre-spans attestations is the whole compatibility
+#: claim: a receipt issued by an earlier version still re-derives to the same
+#: bytes, so `verify` does not report a version change as tampering.
+_PRE_SPANS_PAYLOAD_SHA256 = "17aed9333cfafdc2c4dd36a9ec786653f58ae24f49155bca991297ca14c1a821"
+
+
+def test_a_receipt_for_a_span_free_manifest_is_byte_identical_to_the_pre_spans_receipt(
     copied_example: Path,
 ) -> None:
-    manifest = load_manifest(_span_free(copied_example))
+    """Not "carries no span member" -- the same bytes, pinned to a literal.
+
+    The attestations are rebound to the pre-spans manifest digest here because
+    the committed ones now bind to the example's new digest. Both halves of the
+    old input are therefore present, and the receipt they produce must be the
+    one the old code produced.
+    """
+    current_digest = load_manifest(copied_example / "obligations.toml").manifest_sha256
+    manifest_path = _span_free(copied_example)
+    for attestation in (
+        copied_example / "evidence" / "manual" / "keyboard-review.json",
+        copied_example / "evidence" / "external" / "acr-attestation.json",
+    ):
+        _replace(attestation, current_digest, _PRE_SPANS_MANIFEST_SHA256)
+    manifest = load_manifest(manifest_path)
+    assert manifest.manifest_sha256 == _PRE_SPANS_MANIFEST_SHA256
     receipt = build_receipt(
         evaluate_manifest(manifest, copied_example / "evidence"),
         generated_at="2026-01-01T00:00:00+00:00",
@@ -220,7 +243,8 @@ def test_a_receipt_for_a_span_free_manifest_carries_no_span_member(
     obligations = payload["obligations"]
     assert isinstance(obligations, list)
     assert all(isinstance(item, dict) and "source_span" not in item for item in obligations)
-    assert verify_receipt(receipt) == receipt["payload_sha256"]
+    assert receipt["payload_sha256"] == _PRE_SPANS_PAYLOAD_SHA256
+    assert verify_receipt(receipt) == _PRE_SPANS_PAYLOAD_SHA256
 
 
 def _example_receipt(example_manifest: Path) -> dict[str, JsonValue]:
