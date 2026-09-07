@@ -58,7 +58,40 @@ class OverallStatus(StrEnum):
 #: answers each one, and `tests/test_misuse_boundaries.py` asserts the two sets
 #: are equal, so a vocabulary entry with no implementation is a failing test
 #: rather than a rejection sent to a counterparty.
-ASSERTION_OPERATORS = frozenset({"eq", "ne", "gt", "gte", "lt", "lte", "exists"})
+#: The set operators, the range operator, the length operator and the type
+#: operator were added under #64. They keep the flat
+#: pointer/operator/expected shape the plan, the single-evidence check and the
+#: receipt already carry, so none of those documents needed a new field: the
+#: whole extension lives in what `expected` is allowed to be, per operator, and
+#: `_EXPECTED_SHAPES` in `manifest.py` is where that is enforced.
+ASSERTION_OPERATORS = frozenset(
+    {
+        "eq",
+        "ne",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "exists",
+        "in",
+        "not_in",
+        "between",
+        "length",
+        "type",
+    }
+)
+
+#: The JSON type names `type` may assert, which are the seven RFC 8259 types
+#: with `integer` deliberately absent. JSON has one number type; a manifest
+#: that could say `integer` would be asserting something the format does not
+#: distinguish, and `1.0` would then be a `fail` against a supplier for a
+#: difference no JSON parser preserves.
+JSON_TYPE_NAMES = frozenset({"null", "boolean", "number", "string", "array", "object"})
+
+#: The comparisons `length` may carry. `exists` is excluded: a length that
+#: exists is a tautology, and the set operators are excluded because a length
+#: is a single number and `in` over lengths is expressible as `eq`.
+LENGTH_COMPARISONS = frozenset({"eq", "ne", "gt", "gte", "lt", "lte"})
 
 
 @dataclass(frozen=True, slots=True)

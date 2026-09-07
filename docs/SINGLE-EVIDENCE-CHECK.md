@@ -32,6 +32,14 @@ It serializes no evidence path, source locator, obligation prose, assertion
 pointer/operator/expected value, evaluator detail, evidence content, sibling
 result, obligation result, or overall disposition.
 
+That holds for every operator in the closed vocabulary, including the set,
+range, length and type operators. They keep the same flat
+pointer/operator/expected shape as `eq` and `gt`, so this document needed no new
+field to carry them and redacts them by the same rule — an `expected` that is a
+list of permitted statuses is exactly as much of a source locator as a scalar
+one, and is withheld here for the same reason. The vocabulary is tabulated in
+[EVIDENCE-PLAN.md](./EVIDENCE-PLAN.md#the-assertion-vocabulary).
+
 `obligation_evaluation_complete` is always `false`. For a two-evidence
 obligation, checking one evidence reports `declared_evidence_count: 2` and
 `other_evidence_not_checked_count: 1`, even if the selected result is `pass`.

@@ -16,6 +16,8 @@ from obligation_receipts.canonical import (
 )
 from obligation_receipts.models import (
     ASSERTION_OPERATORS,
+    JSON_TYPE_NAMES,
+    LENGTH_COMPARISONS,
     Classification,
     Contract,
     Criticality,
@@ -189,6 +191,7 @@ def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
                 expected = validate_json_value(expected)
             except StrictJsonError as exc:
                 raise ManifestError(f"{context}.expected is not bounded JSON: {exc}") from exc
+            _check_expected_shape(operator, expected, context)
     elif any(key in value for key in ("pointer", "operator", "expected")):
         raise ManifestError(f"{context} attestation evidence cannot define an assertion")
     return EvidenceSpec(
@@ -199,6 +202,84 @@ def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
         operator=cast(str | None, operator),
         expected=cast(JsonValue | None, expected),
     )
+
+
+def _number(value: object) -> bool:
+    """A JSON number, and not a boolean.
+
+    `isinstance(True, int)` is True in Python and TOML has a boolean type, so
+    without this a manifest could declare `expected = [true, false]` for
+    `between` and be comparing booleans as 1 and 0.
+    """
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _check_expected_shape(operator: str, expected: JsonValue | None, context: str) -> None:
+    """Refuse an `expected` whose shape the operator cannot use.
+
+    Every refusal here is an authoring defect in the approved manifest, caught
+    at load time by every command, so it can never become an observed `fail` in
+    a receipt. That is the same line `pointer.is_well_formed` draws, and it is
+    what keeps the extended vocabulary from widening the ways a supplier can be
+    told their evidence failed for a reason that is really ours.
+
+    Operators not named here take any bounded JSON value, which is what `eq`
+    and `ne` have always accepted.
+    """
+    if operator in {"in", "not_in"}:
+        if not isinstance(expected, list) or not expected:
+            raise ManifestError(
+                f"{context}.expected must be a non-empty array for operator {operator}. "
+                "An empty set would make `in` a constant failure and `not_in` a constant "
+                "pass, neither of which anyone writes on purpose."
+            )
+        return
+    if operator == "between":
+        if not isinstance(expected, list) or len(expected) != 2 or not all(map(_number, expected)):
+            raise ManifestError(
+                f"{context}.expected must be a two-element array of numbers for operator "
+                "between, as [inclusive_low, inclusive_high]"
+            )
+        low, high = expected
+        if not isinstance(low, int | float) or not isinstance(high, int | float) or low > high:
+            raise ManifestError(
+                f"{context}.expected bounds are inverted for operator between: "
+                f"{low!r} is greater than {high!r}. An inverted range matches nothing, so "
+                "every evaluation against it would be a `fail` nobody intended."
+            )
+        return
+    if operator == "length":
+        _check_length_shape(expected, context)
+        return
+    if operator == "type" and (not isinstance(expected, str) or expected not in JSON_TYPE_NAMES):
+        raise ManifestError(
+            f"{context}.expected must be one of {sorted(JSON_TYPE_NAMES)} for operator type"
+        )
+
+
+def _check_length_shape(expected: JsonValue | None, context: str) -> None:
+    """`length` carries a comparison, so its `expected` is a fixed two-key object.
+
+    `{operator = "gte", value = 1}`. Fixed and closed: two keys, both required,
+    the operator drawn from `LENGTH_COMPARISONS` and the value a non-negative
+    integer. It is data rather than an expression -- there is nothing to
+    evaluate, no nesting, and no third key -- which is what keeps the
+    non-executable boundary intact while still letting a manifest say "the
+    results array is non-empty".
+    """
+    if not isinstance(expected, dict) or set(expected) != {"operator", "value"}:
+        raise ManifestError(
+            f"{context}.expected must be a table with exactly the keys `operator` and "
+            "`value` for operator length"
+        )
+    comparison = expected["operator"]
+    if not isinstance(comparison, str) or comparison not in LENGTH_COMPARISONS:
+        raise ManifestError(
+            f"{context}.expected.operator must be one of {sorted(LENGTH_COMPARISONS)}"
+        )
+    length = expected["value"]
+    if isinstance(length, bool) or not isinstance(length, int) or length < 0:
+        raise ManifestError(f"{context}.expected.value must be a non-negative integer length")
 
 
 def _byte_count(value: Mapping[str, object], key: str, context: str) -> int:
