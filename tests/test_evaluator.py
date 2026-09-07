@@ -8,6 +8,7 @@ import pytest
 
 from obligation_receipts.canonical import canonical_json_bytes, sha256_bytes
 from obligation_receipts.evaluator import (
+    UnsupportedOperatorError,
     _compare,
     _evaluate_assertion,
     _load_json_artifact,
@@ -423,15 +424,29 @@ def test_pointer_reports_an_absent_object_member_as_not_found() -> None:
 
 @pytest.mark.parametrize("operator", ["exists", "matches", ""])
 @pytest.mark.parametrize("value", [1, 1.5, "value", None])
-def test_compare_refuses_operators_it_does_not_answer(operator: str, value: object) -> None:
-    """`_compare` answers only the six comparison operators, fail-closed.
+def test_compare_raises_for_an_operator_it_does_not_answer(operator: str, value: object) -> None:
+    """`_compare` answers only the six comparison operators, and raises otherwise.
 
-    `exists` is answered one level up, from the pointer's found flag, because a
-    member whose value is JSON `null` exists. `_compare` deliberately no longer
-    carries a second, contradicting definition of it (#24); asked anyway, it
-    returns the fail-closed default rather than inventing an answer.
+    `exists` stays in this parametrisation: it is answered one level up, from
+    the pointer's found flag, because a member whose value is JSON `null`
+    exists, and `_compare` must not acquire a second, contradicting definition
+    of it (#24). What changed is what "does not answer" means.
+
+    This test previously asserted `_compare(...) is False`, and called that the
+    fail-closed default. It is not fail-closed. `False` is not "no answer" in
+    this codebase -- it is `ResultStatus.FAIL`, an observed failure written into
+    a receipt. Measured on the tree before this change: adding one operator to
+    the manifest loader's accepted vocabulary and to the example manifest
+    produced `overall_status: rejected` with the detail "assertion
+    /summary/critical_violations matches did not pass", against a supplier whose
+    evidence was never compared to anything.
+
+    So an operator with no implementation now raises, reaches the CLI's error
+    boundary, and exits `INPUT_ERROR` -- the code the contract reserves for "no
+    result document", which is exactly what happened.
     """
-    assert _compare(cast(JsonValue, value), operator, cast(JsonValue, value)) is False
+    with pytest.raises(UnsupportedOperatorError, match="no implementation"):
+        _compare(cast(JsonValue, value), operator, cast(JsonValue, value))
 
 
 def test_payload_digest_is_independent_of_how_the_artifact_became_unreadable(
@@ -463,3 +478,51 @@ def test_payload_digest_is_independent_of_how_the_artifact_became_unreadable(
         "the payload digest depends on which OSError the filesystem raised; "
         "receipts are no longer replayable across environments"
     )
+
+
+def test_an_unimplemented_operator_produces_no_receipt_rather_than_a_rejection(
+    copied_example: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End to end, through the CLI, the shape this defect actually took.
+
+    The `EvidenceSpec` is built directly rather than loaded, because
+    `manifest.py` and `evaluator.py` now agree and no manifest file can express
+    this any more. That is exactly what the test is for: it stands in for the
+    two drifting apart again, and pins what happens then -- exit 2, "no result
+    document", nothing written. Before this change the same input wrote a
+    receipt saying `rejected`, with `fail` against the supplier's evidence.
+    """
+
+    from obligation_receipts import cli as cli_module
+    from obligation_receipts.exit_codes import INPUT_ERROR
+
+    manifest = load_manifest(copied_example / "obligations.toml")
+    obligation = manifest.obligations[0]
+    unimplemented = replace(obligation.evidence[0], operator="matches")
+    patched = replace(
+        manifest,
+        obligations=(replace(obligation, evidence=(unimplemented,)), *manifest.obligations[1:]),
+    )
+
+    with pytest.raises(UnsupportedOperatorError):
+        evaluate_manifest(patched, copied_example / "evidence")
+
+    receipt_path = tmp_path / "receipt.json"
+    monkeypatch.setattr(cli_module, "load_manifest", lambda _path: patched)
+    code = cli_module.main(
+        [
+            "evaluate",
+            str(copied_example / "obligations.toml"),
+            "--evidence-root",
+            str(copied_example / "evidence"),
+            "--out",
+            str(receipt_path),
+        ]
+    )
+
+    assert code == INPUT_ERROR
+    assert not receipt_path.exists(), "a refused evaluation must leave no receipt"
+    assert "no evaluation was made" in capsys.readouterr().err

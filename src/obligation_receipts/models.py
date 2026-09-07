@@ -42,6 +42,25 @@ class OverallStatus(StrEnum):
     REJECTED = "rejected"
 
 
+#: The closed assertion vocabulary, in one place.
+#:
+#: It was two places -- a `_OPERATORS` literal in `manifest.py` and an identical
+#: one in `plan.py` -- with a third, implicit copy in `evaluator._compare`'s
+#: if-chain, and nothing compared any of them. The failure that allows is not a
+#: crash. Measured on this tree: adding one operator to `manifest._OPERATORS`
+#: and to the example manifest produced `overall_status: rejected` and an
+#: evidence result of `fail`, detail "assertion /summary/critical_violations
+#: matches did not pass" -- because `_compare` returned `False` for an operator
+#: it did not recognise. The supplier is told their evidence failed, in a
+#: receipt, when nothing was evaluated at all.
+#:
+#: `evaluator.IMPLEMENTED_OPERATORS` is derived from the dispatch that actually
+#: answers each one, and `tests/test_misuse_boundaries.py` asserts the two sets
+#: are equal, so a vocabulary entry with no implementation is a failing test
+#: rather than a rejection sent to a counterparty.
+ASSERTION_OPERATORS = frozenset({"eq", "ne", "gt", "gte", "lt", "lte", "exists"})
+
+
 @dataclass(frozen=True, slots=True)
 class Contract:
     contract_id: str

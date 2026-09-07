@@ -18,6 +18,7 @@ from obligation_receipts.canonical import (
     validate_json_value,
 )
 from obligation_receipts.models import (
+    ASSERTION_OPERATORS,
     Classification,
     Criticality,
     EvidenceKind,
@@ -35,7 +36,6 @@ from obligation_receipts.pointer import is_well_formed
 
 _MAX_PLAN_BYTES = 2 * 1024 * 1024
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "exists"}
 _DOCUMENT_FIELDS = {"payload", "payload_sha256", "schema_version"}
 _PAYLOAD_FIELDS = {
     "contract_id",
@@ -263,7 +263,7 @@ def _validate_assertion(value: JsonValue | None, context: str) -> None:
     # the manifest it was generated from can never disagree about a pointer.
     if not isinstance(pointer, str) or not is_well_formed(pointer):
         raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
-    if not isinstance(operator, str) or operator not in _OPERATORS:
+    if not isinstance(operator, str) or operator not in ASSERTION_OPERATORS:
         raise EvidencePlanError(f"{context}.assertion.operator is unsupported")
     if not isinstance(expected_declared, bool) or expected_declared is (operator == "exists"):
         raise EvidencePlanError(f"{context}.assertion expected declaration is inconsistent")

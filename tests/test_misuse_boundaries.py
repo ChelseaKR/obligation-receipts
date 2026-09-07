@@ -1,4 +1,5 @@
 import ast
+import re
 from pathlib import Path
 
 
@@ -88,4 +89,62 @@ def test_every_module_that_names_the_artifact_cap_names_the_same_number() -> Non
         + ". `inventory` and `progress` report what `evaluate` would be able to read, "
         "so a file between the smallest and largest of these reads as present in one "
         "command and is refused by another."
+    )
+
+
+def test_the_accepted_assertion_vocabulary_is_the_implemented_one() -> None:
+    """Two copies of the operator set, and a third in an if-chain, held by nothing.
+
+    `manifest._OPERATORS` decided what a manifest may declare. `plan._OPERATORS`
+    was an identical literal deciding what an evidence plan may carry.
+    `evaluator._compare` was an if-chain, so the *implemented* set existed only
+    in control flow -- and its trailing `return False` answered an operator
+    nobody had implemented.
+
+    Nothing compared them, and the consequence is not a crash. Measured on this
+    tree before the change: adding one operator to `manifest._OPERATORS` and to
+    the example manifest produced `overall_status: rejected`, with the evidence
+    result `fail` and the detail "assertion /summary/critical_violations matches
+    did not pass". A supplier is told in a receipt that their evidence failed
+    when nothing was compared to anything -- a check that could not run,
+    published as an observed failure.
+
+    So the vocabulary is now one frozenset in `models.py` that both loaders
+    import, and the implemented set is derived from the dispatch that answers
+    each operator. Adding an operator to the vocabulary without implementing it
+    fails here rather than in a counterparty's receipt.
+    """
+    from obligation_receipts.evaluator import IMPLEMENTED_OPERATORS
+    from obligation_receipts.models import ASSERTION_OPERATORS
+
+    assert ASSERTION_OPERATORS == IMPLEMENTED_OPERATORS, (
+        "the accepted and implemented operator sets differ: accepted-only "
+        f"{sorted(ASSERTION_OPERATORS - IMPLEMENTED_OPERATORS)}, implemented-only "
+        f"{sorted(IMPLEMENTED_OPERATORS - ASSERTION_OPERATORS)}. An accepted operator with "
+        "no implementation is recorded as an observed `fail` against a supplier."
+    )
+
+
+def test_no_module_keeps_its_own_copy_of_the_operator_vocabulary() -> None:
+    """The set literal must not come back.
+
+    The test above compares two names; it cannot see a third module that
+    re-declares the same strings and drifts. This reads the source for the
+    literal itself, the way the artifact-cap test reads every module's constant.
+    """
+    root = Path(__file__).parents[1] / "src/obligation_receipts"
+    # A *set* literal naming the operators, not a dict keyed by them: excluding
+    # any brace group containing a colon is what tells the re-declared
+    # vocabulary apart from `evaluator._ORDERING`, which is the implementation
+    # the first test already holds equal to it. Without that exclusion this
+    # fires on the fix itself, which is a gate that cannot be satisfied.
+    literal = re.compile(r"=\s*(?:frozenset\()?\{[^}:]*\"gte\"[^}:]*\}")
+    offenders = [
+        path.name
+        for path in sorted(root.glob("*.py"))
+        if path.name != "models.py" and literal.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
+        f"{offenders} declare their own operator set; import "
+        "`models.ASSERTION_OPERATORS` instead so there is one vocabulary"
     )
