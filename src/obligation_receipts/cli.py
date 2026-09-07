@@ -19,6 +19,14 @@ from obligation_receipts.inventory import (
     audit_evidence_root,
     render_markdown,
 )
+from obligation_receipts.lock import (
+    EvidenceLockError,
+    build_evidence_lock,
+    enforce_evidence_lock,
+    load_evidence_lock,
+    lock_digest,
+    write_evidence_lock,
+)
 from obligation_receipts.manifest import ManifestError, load_manifest
 from obligation_receipts.models import JsonValue
 from obligation_receipts.paths import BoundedPathError
@@ -71,6 +79,22 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--evidence-root", type=Path, required=True)
     evaluate.add_argument("--out", type=Path, required=True)
     evaluate.add_argument("--generated-at")
+    evaluate.add_argument(
+        "--lock",
+        type=Path,
+        help=(
+            "an evidence lock from freeze-evidence. Refuse, writing no receipt, "
+            "if any declared artifact is not exactly what the lock froze"
+        ),
+    )
+
+    freeze = subparsers.add_parser(
+        "freeze-evidence",
+        help="digest every declared artifact without evaluating anything",
+    )
+    freeze.add_argument("manifest", type=Path)
+    freeze.add_argument("--evidence-root", type=Path, required=True)
+    freeze.add_argument("--out", type=Path, required=True)
 
     evidence_plan = subparsers.add_parser(
         "evidence-plan",
@@ -202,20 +226,59 @@ def _evaluate(
     evidence_root: Path,
     out: Path,
     generated_at: str | None,
+    lock_path: Path | None,
 ) -> int:
     manifest = load_manifest(manifest_path)
+    # Enforced before anything is evaluated, and it raises rather than
+    # returning a status. A lock that reported a mismatch and let the run
+    # continue would leave the mismatch in stdout and a receipt on disk that
+    # looks exactly like an unlocked one.
+    lock_sha256 = (
+        enforce_evidence_lock(manifest, evidence_root, load_evidence_lock(lock_path))
+        if lock_path is not None
+        else None
+    )
     evaluation = evaluate_manifest(manifest, evidence_root)
-    receipt = build_receipt(evaluation, generated_at=generated_at)
+    receipt = build_receipt(evaluation, generated_at=generated_at, evidence_lock_sha256=lock_sha256)
     write_receipt(out, receipt)
+    summary: dict[str, JsonValue] = {
+        "manifest_sha256": manifest.manifest_sha256,
+        "overall_status": evaluation.overall_status.value,
+        "payload_sha256": receipt["payload_sha256"],
+        "receipt": str(out),
+    }
+    if lock_sha256 is not None:
+        summary["evidence_lock_sha256"] = lock_sha256
+    _print_json(summary)
+    return evaluation_exit_code(evaluation.overall_status)
+
+
+def _freeze_evidence(manifest_path: Path, evidence_root: Path, out: Path) -> int:
+    """Digest what was collected, judging none of it.
+
+    Exits OK whatever the evidence says. A lock over evidence that is entirely
+    absent is a true and useful record -- it says the collection produced
+    nothing -- and mapping it onto an evaluation exit code would report a
+    finding this command did not make.
+    """
+
+    manifest = load_manifest(manifest_path)
+    lock = build_evidence_lock(manifest, evidence_root)
+    write_evidence_lock(out, lock)
+    artifacts = lock["artifacts"]
+    frozen = artifacts if isinstance(artifacts, list) else []
     _print_json(
         {
+            "artifacts": len(frozen),
+            "evidence_lock_sha256": lock_digest(lock),
+            "lock": str(out),
             "manifest_sha256": manifest.manifest_sha256,
-            "overall_status": evaluation.overall_status.value,
-            "payload_sha256": receipt["payload_sha256"],
-            "receipt": str(out),
+            "present": sum(
+                1 for row in frozen if isinstance(row, dict) and row.get("status") == "present"
+            ),
         }
     )
-    return evaluation_exit_code(evaluation.overall_status)
+    return OK
 
 
 def _evidence_plan(
@@ -366,7 +429,8 @@ def _research_metrics(rater_a: Path, rater_b: Path) -> int:
 #: silently returns INPUT_ERROR.
 _COMMANDS: dict[str, tuple[Callable[..., int], tuple[str, ...]]] = {
     "validate": (_validate, ("manifest",)),
-    "evaluate": (_evaluate, ("manifest", "evidence_root", "out", "generated_at")),
+    "evaluate": (_evaluate, ("manifest", "evidence_root", "out", "generated_at", "lock")),
+    "freeze-evidence": (_freeze_evidence, ("manifest", "evidence_root", "out")),
     "evidence-plan": (_evidence_plan, ("manifest", "out", "include_local_details")),
     "verify-evidence-plan": (_verify_evidence_plan, ("plan", "manifest")),
     "check-evidence": (_check_evidence, ("manifest", "evidence_id", "evidence_root")),
@@ -405,6 +469,7 @@ def main(argv: list[str] | None = None) -> int:
         ManifestError,
         EvidencePlanError,
         EvidenceCheckError,
+        EvidenceLockError,
         EvidenceRootAuditError,
         PlanStatusError,
         ReceiptDiffError,

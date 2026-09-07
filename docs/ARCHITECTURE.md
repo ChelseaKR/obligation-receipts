@@ -41,7 +41,7 @@ human-approved manifest                                   │
 
 ## Components
 
-All sixteen modules of `src/obligation_receipts/` appear below. A component
+All seventeen modules of `src/obligation_receipts/` appear below. A component
 list that quietly omits one describes a different program than the one that
 ships, and `canonical.py` and `exit_codes.py` — the strict-JSON seam every
 digest passes through and the exit contract every command draws from — were
@@ -66,6 +66,13 @@ both missing from a list that reads as exhaustive.
 - `paths.py` is the single bounded-path seam. Source/evidence paths must be
   portable lexical relative paths beneath a caller-declared root; regular-file
   descriptors are opened nonblocking and final components are not followed.
+- `lock.py` freezes the declared evidence at collection time and refuses an
+  evaluation whose evidence has moved since. It digests every declared
+  artifact through the same bounded readers and the same artifact cap the
+  evaluator uses, records each as `present` with a digest or `absent` with
+  none, and refuses to write a lock at all for a path that could not be read —
+  because a failed read frozen as `absent` would be a claim nobody measured.
+  It judges nothing: an artifact absent at both moments is still `missing`.
 - `evaluator.py` parses and hashes one descriptor-stable bounded byte snapshot,
   evaluates a small closed operator set, and validates content-bound
   attestations bound through contract, manifest, obligation, and evidence ID.

@@ -32,6 +32,17 @@ _MAX_RECEIPT_BYTES = 2 * 1024 * 1024
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _RECEIPT_FIELDS = {"schema_version", "envelope", "payload", "payload_sha256"}
 _ENVELOPE_FIELDS = {"claimed_generated_at", "signature_status", "trusted_time"}
+#: Envelope members that may be absent. The envelope is still closed -- an
+#: unknown key is refused exactly as before -- but a receipt produced without an
+#: evidence lock carries no lock field, so every receipt written before locks
+#: existed verifies byte-identically and no committed fixture moves.
+#:
+#: The other direction is deliberately not compatible: a verifier that does not
+#: know this field refuses a receipt that carries it, because it cannot check
+#: the binding the receipt claims. That is the fail-closed direction. A receipt
+#: asserting "these bytes were frozen at collection time" is worth less than
+#: nothing if the reader silently ignores the assertion.
+_OPTIONAL_ENVELOPE_FIELDS = {"evidence_lock_sha256"}
 _PAYLOAD_FIELDS = {
     "contract",
     "decision_scope",
@@ -65,8 +76,21 @@ class ReceiptError(ValueError):
     """Raised when a receipt is malformed or fails verification."""
 
 
-def _closed_object(value: JsonValue | None, fields: set[str], context: str) -> dict[str, JsonValue]:
-    if not isinstance(value, dict) or set(value) != fields:
+def _closed_object(
+    value: JsonValue | None,
+    fields: set[str],
+    context: str,
+    *,
+    optional: set[str] | None = None,
+) -> dict[str, JsonValue]:
+    """A JSON object whose key set is exactly ``fields``, plus any of ``optional``.
+
+    ``optional`` does not loosen the object: an unknown key is still refused.
+    It only lets a named member be absent, which is what keeps a receipt written
+    before that member existed verifying unchanged.
+    """
+
+    if not isinstance(value, dict) or set(value) - (optional or set()) != fields:
         raise ReceiptError(f"{context} fields do not match the closed schema")
     return value
 
@@ -233,19 +257,35 @@ def _validate_payload(value: JsonValue | None) -> dict[str, JsonValue]:
 
 
 def build_receipt(
-    evaluation: Evaluation, *, generated_at: str | None = None
+    evaluation: Evaluation,
+    *,
+    generated_at: str | None = None,
+    evidence_lock_sha256: str | None = None,
 ) -> dict[str, JsonValue]:
-    """Build a deterministic payload with an explicitly untrusted envelope."""
+    """Build a deterministic payload with an explicitly untrusted envelope.
+
+    ``evidence_lock_sha256`` names the evidence lock this evaluation was
+    required to satisfy, and is present only when one was. It belongs in the
+    envelope rather than the payload for two reasons: the payload digest is the
+    determinism contract and every committed fixture pins it, and the lock is a
+    statement about the *run*, not about what was judged. The payload answers
+    "what did the evidence say"; the envelope answers "under what conditions was
+    that read".
+    """
+
     payload = evaluation.payload()
     payload_sha256 = sha256_bytes(canonical_json_bytes(payload))
     timestamp = generated_at or datetime.now(tz=UTC).replace(microsecond=0).isoformat()
     _validate_claimed_time(timestamp)
+    envelope: dict[str, JsonValue] = {
+        "claimed_generated_at": timestamp,
+        "signature_status": "not_signed",
+        "trusted_time": False,
+    }
+    if evidence_lock_sha256 is not None:
+        envelope["evidence_lock_sha256"] = evidence_lock_sha256
     return {
-        "envelope": {
-            "claimed_generated_at": timestamp,
-            "signature_status": "not_signed",
-            "trusted_time": False,
-        },
+        "envelope": envelope,
         "payload": payload,
         "payload_sha256": payload_sha256,
         "schema_version": "obligation-receipts/receipt/v0.1",
@@ -302,7 +342,14 @@ def verify_receipt(receipt: dict[str, JsonValue]) -> str:
         raise ReceiptError("unsupported receipt schema")
     payload = _validate_payload(receipt.get("payload"))
     claimed_hash = _required_digest(receipt, "payload_sha256", "receipt")
-    envelope = _closed_object(receipt.get("envelope"), _ENVELOPE_FIELDS, "receipt envelope")
+    envelope = _closed_object(
+        receipt.get("envelope"),
+        _ENVELOPE_FIELDS,
+        "receipt envelope",
+        optional=_OPTIONAL_ENVELOPE_FIELDS,
+    )
+    if "evidence_lock_sha256" in envelope:
+        _required_digest(envelope, "evidence_lock_sha256", "receipt envelope")
     timestamp = _required_string(envelope, "claimed_generated_at", "receipt envelope")
     _validate_claimed_time(timestamp)
     if (
