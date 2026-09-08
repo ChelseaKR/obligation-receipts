@@ -19,6 +19,13 @@ _WORKFLOW_SUFFIXES = ("*.yml", "*.yaml")
 #: hatch. Both now read this name.
 _LOCAL_REFERENCE = re.compile(r"^\s*(?:-\s+)?uses:\s*[.$]/(?!\S*\.\.)[^@\s]*$")
 
+#: A `uses:` line pinned to a 40-hex commit, with the SHA captured. Declared here for the
+#: same reason `_LOCAL_REFERENCE` is: `tests/test_ci_action.py` used to carry its own copy
+#: of this literal and assert it over `action.yml`, which is the shape that let the
+#: exemption regex drift from the gate it guards. There is now one pattern, and one gate
+#: reading it over every file this repository executes.
+_PINNED_USE_LINE = re.compile(r"^\s*(?:-\s+)?uses:\s*[^@\s]+@([0-9a-f]{40})(?:\s+#.*)?$")
+
 
 def workflow_files(root: Path) -> list[Path]:
     """Every file GitHub would execute as a workflow, in both spellings."""
@@ -70,7 +77,7 @@ def test_ci_actions_are_digest_pinned() -> None:
     root = Path(__file__).parents[1]
     workflows = pinned_files(root)
     assert workflows
-    action_pattern = re.compile(r"^\s*(?:-\s+)?uses:\s*[^@\s]+@([0-9a-f]{40})(?:\s+#.*)?$")
+    action_pattern = _PINNED_USE_LINE
     local_pattern = _LOCAL_REFERENCE
     for workflow in workflows:
         text = workflow.read_text(encoding="utf-8")
@@ -118,13 +125,26 @@ def _publication_capabilities(text: str) -> list[str]:
     return [needle for needle in _PUBLISH_COMMANDS + _PUBLISH_PERMISSIONS if needle in text]
 
 
-def test_no_workflow_can_publish_a_release() -> None:
-    """The publication ban has to cover every workflow, not one filename.
+def test_nothing_this_repository_executes_can_publish_a_release() -> None:
+    """The publication ban has to cover every file GitHub runs, not every workflow.
 
     This read a hardcoded `.github/workflows/release.yml`. A second workflow --
     `publish.yml`, say -- could have declared `contents: write` and run
     `gh release create`, and passed every assertion in this file, because nothing
-    read it. The ban now applies to every file GitHub would execute.
+    read it. The ban was then widened to every workflow.
+
+    It stopped there, at `workflow_files`, and `action.yml` is not a workflow. It is
+    the composite action OTHER repositories run, so a publisher step inside it executes
+    under the caller's permissions rather than under any `permissions:` block here --
+    which is exactly why the capability half of this ban, the half that closes, cannot
+    reach it. The command list was its only cover, and its only copy of that list lived
+    in `tests/test_ci_action.py` and held six spellings rather than twelve. Measured on
+    `origin/main` before this change: adding a `softprops/action-gh-release` step to
+    `action.yml` left the entire suite green.
+
+    So the universe is `pinned_files` -- the same universe the digest gate reads -- and
+    the two are held equal by
+    `test_the_pin_identity_step_reads_every_file_the_digest_gate_reads`.
 
     Widened in the other direction too. The old list named four publish commands;
     the set of ways to upload a distribution is not four, and is not closed. So the
@@ -134,24 +154,33 @@ def test_no_workflow_can_publish_a_release() -> None:
     from being pointed at the releases endpoint.
     """
     root = Path(__file__).parents[1]
-    workflows = workflow_files(root)
-    assert workflows
+    executed = pinned_files(root)
+    assert executed
+    assert set(action_files(root)) <= set(executed), (
+        "the composite action is outside the publication ban again; it is the file "
+        "downstream repositories actually run"
+    )
 
     # The reader must be able to fail. Both halves, on synthetic text, before any
-    # clean result from the real files is worth reading.
+    # clean result from the real files is worth reading. The third case is the one
+    # that reaches `action.yml`: a composite action declares no `permissions:`, so a
+    # publisher there is visible only as a command.
     assert _publication_capabilities("permissions:\n  contents: write\n") == ["contents: write"]
     assert _publication_capabilities("run: twine upload dist/*\n") == ["twine upload"]
+    assert _publication_capabilities("- uses: softprops/action-gh-release@" + "0" * 40) == [
+        "softprops/action-gh-release"
+    ]
     assert _publication_capabilities("permissions:\n  contents: read\n") == []
 
     offenders = [
-        f"{workflow.name}: {found}"
-        for workflow in workflows
-        for found in _publication_capabilities(workflow.read_text(encoding="utf-8"))
+        f"{path.name}: {found}"
+        for path in executed
+        for found in _publication_capabilities(path.read_text(encoding="utf-8"))
     ]
     assert not offenders, (
-        f"these workflows can publish a release or a distribution: {offenders}. "
+        f"these files can publish a release or a distribution: {offenders}. "
         "Publication is a human step performed against a signed, attested candidate; "
-        "no workflow in this repository is permitted to do it."
+        "nothing this repository executes is permitted to do it."
     )
 
     release = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -356,14 +385,71 @@ def _pinned_repositories(root: Path) -> set[str]:
 
     A reusable-workflow reference carries a path after the repository name, so only the
     first two segments identify the repository the pin has to resolve against.
+
+    Read over `pinned_files`, not `workflow_files`: `action.yml` pins third-party actions
+    too, and it is the file downstream repositories execute.
     """
     repositories = set()
-    for workflow in workflow_files(root):
-        for line in workflow.read_text(encoding="utf-8").splitlines():
+    for path in pinned_files(root):
+        for line in path.read_text(encoding="utf-8").splitlines():
             match = _PINNED_USES.match(line)
             if match is not None:
                 repositories.add("/".join(match.group(1).split("/")[:2]))
     return repositories
+
+
+#: The paths the ci.yml pin-identity step hands to `grep -r`, captured from the step
+#: itself. Anchored on the pipeline's first command rather than on the step name, because
+#: the name is prose and the argument list is the thing that decides what gets scanned.
+_PIN_SCAN = re.compile(r"pins=\"\$\(grep -rhoE '[^']*' (?P<paths>[^\\\n]+)")
+
+
+def _pin_scan_files(root: Path) -> set[Path]:
+    """Every file the ci.yml pin-identity step's `grep -r` would actually read."""
+    text = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    match = _PIN_SCAN.search(text)
+    assert match is not None, (
+        "the pin-identity step no longer starts with the grep this test reads its scope "
+        "from; re-anchor this pattern rather than deleting it"
+    )
+    found: set[Path] = set()
+    for argument in match.group("paths").split():
+        target = root / argument
+        assert target.exists(), f"the pin-identity step scans {argument}, which does not exist"
+        if target.is_dir():
+            found.update(path for path in target.rglob("*") if path.is_file())
+        else:
+            found.add(target)
+    return found
+
+
+def test_the_pin_identity_step_reads_every_file_the_digest_gate_reads() -> None:
+    """The two halves of the pin gate must agree on which files exist.
+
+    The digest gate reads `pinned_files` -- workflows plus `action.yml` -- and proves a
+    pin is 40 hex characters. The identity gate in ci.yml resolves those SHAs against the
+    repositories they name, and it read `.github/workflows` alone. So the one file this
+    repository publishes for others to run had its pins format-checked and never
+    identity-checked, which is the exact substitution
+    `test_every_pinned_sha_is_resolved_against_the_repository_it_names` exists to stop.
+
+    Measured on `origin/main` before this change: replacing `action.yml`'s
+    `actions/upload-artifact` SHA with forty different hex characters left all 145 tests
+    green.
+
+    Asserting the two file sets are equal, rather than asserting the string `action.yml`
+    appears in the step, is the difference between a gate on a relation and a gate on a
+    token: a path added to `pinned_files` and forgotten in ci.yml fails here, and so does
+    the reverse.
+    """
+    root = Path(__file__).parents[1]
+    scanned = _pin_scan_files(root)
+    assert scanned, "the pin-identity step scans no files; this gate would be vacuous"
+    required = set(pinned_files(root))
+    assert required <= scanned, (
+        f"the pin-identity step does not read {sorted(str(p.relative_to(root)) for p in required - scanned)}, "
+        "so any SHA pinned there is checked for format and never for identity"
+    )
 
 
 def test_every_pinned_sha_is_resolved_against_the_repository_it_names() -> None:

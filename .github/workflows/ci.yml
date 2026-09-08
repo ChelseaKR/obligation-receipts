@@ -235,7 +235,12 @@ jobs:
           # `uses[:]` rather than the plain key: this line is inside a file the
           # digest-pin gate reads as text, and a plain one would look to it
           # like an unpinned action reference.
-          pins="$(grep -rhoE '^[[:space:]]*(-[[:space:]]+)?uses[:][[:space:]]*[^@[:space:]]+@[0-9a-f]{40}' .github/workflows \
+          # `.github/workflows` AND `action.yml`. The composite action pins
+          # third-party actions exactly as a workflow does and is the file OTHER
+          # repositories execute, so a pin left out of this scan is a pin nothing
+          # resolves. tests/test_supply_chain.py holds this path list equal to the
+          # file set the digest gate reads, so the two cannot drift apart again.
+          pins="$(grep -rhoE '^[[:space:]]*(-[[:space:]]+)?uses[:][[:space:]]*[^@[:space:]]+@[0-9a-f]{40}' .github/workflows action.yml \
             | sed -E 's/.*[[:space:]]([^@[:space:]]+)@([0-9a-f]{40})$/\1 \2/' \
             | awk '{ split($1, part, "/"); print part[1] "/" part[2], $2 }' \
             | sort -u)"
