@@ -70,7 +70,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Evaluate the example through the local action
-        uses: ./
+        # `$/`, GitHub's self-repository syntax, rather than `./`. Both resolve
+        # to this repository at the commit the workflow is running, but `./`
+        # resolves through the *runner's filesystem* -- whatever a previous step
+        # left in the workspace -- while `$/` is resolved by Actions itself and
+        # cannot be pointed at something cloned at runtime. zizmor's
+        # `self-repository` audit reports the `./` form from v1.30.0 onward.
+        uses: $/
         with:
           mode: evaluate
           manifest: examples/accessibility-acceptance/obligations.toml
@@ -181,18 +187,24 @@ jobs:
           advanced-security: false
           annotations: true
 
-      # The audit zizmor is configured not to run, run here instead. It
-      # lives in this job rather than a job of its own because the two ask
-      # the same question of the same lines, and because the branch ruleset
-      # names required checks by job id.
+      # The same question zizmor's `impostor-commit` audit asks, asked a second
+      # way. It lives in this job rather than a job of its own because the two
+      # ask it of the same lines, and because the branch ruleset names required
+      # checks by job id.
       #
-      # A 40-hex pin proves format, not identity. Nothing in this repository asked
-      # whether a pinned SHA belongs to the repository the pin names: the digest
-      # gate in tests/test_supply_chain.py matches `@([0-9a-f]{40})`, and zizmor's
-      # `impostor-commit` audit -- the rule that would ask -- is disabled repo-wide
-      # in .github/zizmor.yml for a real access reason that nonetheless leaves all
-      # 9 distinct pinned refs unasked. Swapping a real SHA for one out of an
-      # attacker's fork of the same action kept CI green.
+      # `impostor-commit` used to be disabled repo-wide in .github/zizmor.yml:
+      # release.yml pinned a reusable workflow in the private
+      # ChelseaKR/portfolio-standards, this workflow's repo-scoped GITHUB_TOKEN
+      # 404s on it, and older zizmor aborted the whole file's audit on that
+      # access error rather than failing closed -- so no pinned reference in
+      # the file was audited. #84 repointed that pin at the public
+      # ChelseaKR/.github copy, every pin is now readable, and the config file
+      # is gone: the audit runs.
+      #
+      # This step stays, because it is the stronger of the two. A 40-hex pin
+      # proves format, not identity: the digest gate in
+      # tests/test_supply_chain.py matches `@([0-9a-f]{40})`, so swapping a real
+      # SHA for one out of an attacker's fork of the same action kept CI green.
       #
       # The obvious check does not close it. Forks share the upstream repository's
       # git object store, so `repos/<owner>/<repo>/commits/<sha>` resolves a commit
@@ -208,14 +220,15 @@ jobs:
       - name: Resolve every pinned SHA against the repository it names
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ChelseaKR/portfolio-standards is private and owned by another
-          # account, so this workflow's repo-scoped GITHUB_TOKEN cannot read
-          # it: the API 404s on a genuine pin. It is skipped rather than
-          # failed, and verified by hand at every bump -- the same access
-          # limit that forces zizmor's impostor-commit audit off entirely.
-          # tests/test_supply_chain.py asserts this list names only
-          # repositories that are actually pinned, so it cannot grow into a
-          # way to exempt a public action.
+          # Empty, and it should stay empty. This list existed for exactly one
+          # entry -- ChelseaKR/portfolio-standards, which is private and owned
+          # by another account, so this workflow's repo-scoped GITHUB_TOKEN
+          # 404s on a genuine pin. #84 repointed release.yml at the public
+          # ChelseaKR/.github copy of the same reusable workflow, so every pin
+          # in this repository is now in a repository this token can read and
+          # nothing needs skipping. tests/test_supply_chain.py asserts this
+          # list names only repositories that are actually pinned, so it
+          # cannot grow into a way to exempt a public action.
           UNREADABLE_PINS: ""
         run: |
           set -euo pipefail

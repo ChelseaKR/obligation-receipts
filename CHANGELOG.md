@@ -4,6 +4,31 @@ All notable changes will be documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The dogfood job references this repository's composite action as `$/`, not
+  `./`, and zizmor's `impostor-commit` audit is enabled again.** The two are
+  the same fact arriving twice. `./` resolves an action through the runner's
+  workspace, so a step that had cloned something earlier could decide which
+  action ran; `$/` is GitHub's self-repository form, resolved by Actions at the
+  commit the workflow is running, and zizmor reports the `./` form from v1.30.0
+  onward — which is what turned #85, an ordinary `zizmor-action` bump, red.
+  Measured before changing anything: zizmor 1.29.0 (what CI runs today) parses
+  `$/` and reports nothing, 1.30.0 reports `./` as a finding, and 1.16.3 cannot
+  parse `$/` at all, so the two versions overlap and the change can land ahead
+  of the bump rather than with it.
+  `.github/zizmor.yml` existed only to disable `impostor-commit`, because
+  `release.yml` pinned a reusable workflow in the private
+  `ChelseaKR/portfolio-standards` that this workflow's GITHUB_TOKEN 404s on, and
+  older zizmor abandoned the whole file's audit on that error rather than
+  failing closed. #84 repointed the pin at the public `ChelseaKR/.github`, so
+  the reason is gone and the file with it. The ci.yml step that asks the same
+  identity question stays: it asks the stricter form of it — is the SHA a *tag
+  ref* of the repository the pin names — and a required check depends on it.
+  Two comments and one test docstring that still described the private pin, its
+  `UNREADABLE_PINS` skip and the disabled audit are corrected rather than left
+  as a rationale for something that no longer exists.
+
 ### Fixed
 
 - **The evaluator's artifact cap is copied into two modules and nothing held the

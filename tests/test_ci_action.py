@@ -179,7 +179,13 @@ def test_the_dogfood_job_runs_the_local_action_on_the_example() -> None:
     assert "  dogfood-action:" in text
     job = text.split("  dogfood-action:", 1)[1].split("\n  package:", 1)[0]
     assert "timeout-minutes: 15" in job
-    assert "\n        uses: ./\n" in job
+    # `$/`, not `./`: the self-repository form is resolved by Actions rather
+    # than through whatever the runner's workspace happens to hold, so a step
+    # that cloned something before this one cannot decide which action runs.
+    # Asserted as the exact YAML line, because `$/` also appears in the comment
+    # above it and a bare substring would pass on the comment alone.
+    assert "\n        uses: $/\n" in job
+    assert "\n        uses: ./\n" not in job
     assert "\n          mode: evaluate\n" in job
     assert "examples/accessibility-acceptance/obligations.toml" in job
     assert "examples/accessibility-acceptance/evidence" in job
