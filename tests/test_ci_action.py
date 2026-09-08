@@ -150,27 +150,45 @@ def test_the_install_step_does_use_set_e() -> None:
     assert "set -euo pipefail" in install
 
 
-def test_the_action_pins_every_third_party_action() -> None:
-    text = _ACTION_TEXT
-    uses = [line for line in text.splitlines() if line.strip().startswith(("- uses:", "uses:"))]
-    assert uses, "the action uses no other actions; this test would prove nothing"
-    pattern = re.compile(r"^\s*(?:-\s+)?uses:\s*[^@\s]+@[0-9a-f]{40}(?:\s+#.*)?$")
-    for line in uses:
-        assert pattern.fullmatch(line), f"unpinned action reference: {line!r}"
+def test_the_action_uses_other_actions_at_all() -> None:
+    """The floor under the two gates that now live in `tests/test_supply_chain.py`.
 
+    Both of this module's own supply-chain assertions were deleted, and this is what
+    stops that from having quietly reduced coverage to nothing.
 
-def test_the_action_publishes_nothing() -> None:
-    """WVR-009: this repository has no publication authority."""
-    text = ACTION.read_text(encoding="utf-8")
-    for forbidden in (
-        "gh release create",
-        "uv publish",
-        "twine upload",
-        "pypi",
-        "contents: write",
-        "packages: write",
-    ):
-        assert forbidden not in text.lower(), f"the action references {forbidden}"
+    They were **weaker duplicates of gates that already read `action.yml`**, each with its
+    own copy of a literal the real gate also holds:
+
+    * the digest-pin check compiled a second copy of the `@[0-9a-f]{40}` pattern, so it
+      proved things about a regex nothing ran -- the same shape as the local-reference
+      exemption that used to be guarded by a check of a different exemption, and the
+      reason `_PINNED_USE_LINE` is now one module-level constant;
+    * `test_the_action_publishes_nothing` held **six** forbidden spellings where
+      `_PUBLISH_COMMANDS` holds twelve, and it was `action.yml`'s only cover, because the
+      publication ban read `workflow_files`. `hatch publish`, `flit publish`,
+      `poetry publish`, `softprops/action-gh-release` and `ncipollo/release-action` all
+      walked past it. Measured on `origin/main`: a `softprops/action-gh-release` step
+      added to `action.yml` left all 145 tests green.
+
+    A second, weaker copy of a gate is worse than none, because it reads as coverage. The
+    strong ones read `pinned_files`, which contains this file --
+    `test_the_composite_action_is_read_by_the_supply_chain_gate` asserts that, and
+    `test_the_pin_identity_step_reads_every_file_the_digest_gate_reads` asserts ci.yml
+    resolves the SHAs it finds there. What is left here is the premise those gates rest
+    on: that this file references other actions at all. If it stops doing so, they become
+    vacuous over it and this fails rather than going quietly green.
+
+    (Cross-module import would have been the other repair. It is not available: pytest
+    runs with `--import-mode=importlib` and `tests/` is not a package, so
+    `import test_supply_chain` raises `ModuleNotFoundError` -- measured, not assumed.)
+    """
+    uses = [
+        line for line in _ACTION_TEXT.splitlines() if line.strip().startswith(("- uses:", "uses:"))
+    ]
+    assert uses, (
+        "the action references no other actions, so the digest-pin and publication gates "
+        "in tests/test_supply_chain.py now prove nothing about it"
+    )
 
 
 def test_the_dogfood_job_runs_the_local_action_on_the_example() -> None:
