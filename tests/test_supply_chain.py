@@ -7,6 +7,18 @@ from pathlib import Path
 # to any workflow written with the other.
 _WORKFLOW_SUFFIXES = ("*.yml", "*.yaml")
 
+#: The one exemption from the digest-pin gate: a reference to an action in THIS
+#: repository, where there is no third-party digest to pin because the reference
+#: already IS the commit the job is running. `$/...` is GitHub's self-repository
+#: form and `./...` is the workspace-relative one.
+#:
+#: Declared once, at module scope, because the test that holds this pattern to
+#: its refusals used to compile its own copy of it. Two literals meant that test
+#: proved things about a regex the gate did not use, and widening the gate's copy
+#: left it green -- an escape hatch guarded by a check of a different escape
+#: hatch. Both now read this name.
+_LOCAL_REFERENCE = re.compile(r"^\s*(?:-\s+)?uses:\s*[.$]/(?!\S*\.\.)[^@\s]*$")
+
 
 def workflow_files(root: Path) -> list[Path]:
     """Every file GitHub would execute as a workflow, in both spellings."""
@@ -59,12 +71,7 @@ def test_ci_actions_are_digest_pinned() -> None:
     workflows = pinned_files(root)
     assert workflows
     action_pattern = re.compile(r"^\s*(?:-\s+)?uses:\s*[^@\s]+@([0-9a-f]{40})(?:\s+#.*)?$")
-    # A `uses: ./...` reference resolves to the checked-out tree itself, so
-    # there is no third-party digest to pin -- it already IS the commit the job
-    # is running. The leading `./` is required and the pattern is anchored, so
-    # this cannot be widened into accepting an unpinned remote reference: a
-    # bare `uses: actions/checkout` or `uses: owner/repo@v4` still fails.
-    local_pattern = re.compile(r"^\s*(?:-\s+)?uses:\s*\./(?!\S*\.\.)[^@\s]*$")
+    local_pattern = _LOCAL_REFERENCE
     for workflow in workflows:
         text = workflow.read_text(encoding="utf-8")
         uses_lines = [line for line in text.splitlines() if "uses:" in line]
@@ -333,12 +340,14 @@ def test_sast_actually_scans_every_directory_it_claims_to_scan() -> None:
 _PIN_RESOLUTION = "git/matching-refs/tags/"
 _UNREADABLE_PINS = re.compile(r"^\s*UNREADABLE_PINS:\s*\"?(?P<repositories>.*?)\"?\s*$", re.M)
 
-#: The only pinned repository the pin-identity step may skip. Private, owned by another
-#: account, and unreadable by this workflow's repo-scoped GITHUB_TOKEN, so the API 404s on
-#: a genuine pin; it is verified by hand at every bump instead. Each exemption is a pin
-#: nothing automated checks, so the set is pinned down here rather than left to whatever
-#: the workflow happens to say: adding one means editing this line, in a diff a reviewer
-#: reads, instead of appending a word to an env var in ci.yml.
+#: Pinned repositories the pin-identity step may skip. Empty, and it stays empty unless
+#: something makes it necessary: it held one entry, ChelseaKR/portfolio-standards, which is
+#: private and owned by another account, so this workflow's repo-scoped GITHUB_TOKEN 404s on
+#: a genuine pin. #84 repointed release.yml at the public ChelseaKR/.github copy of the same
+#: reusable workflow and the entry went with it. Each exemption is a pin nothing automated
+#: checks, so the set is pinned down here rather than left to whatever the workflow happens
+#: to say: adding one means editing this line, in a diff a reviewer reads, instead of
+#: appending a word to an env var in ci.yml.
 _EXEMPT_FROM_PIN_IDENTITY: frozenset[str] = frozenset()
 
 
@@ -361,16 +370,22 @@ def test_every_pinned_sha_is_resolved_against_the_repository_it_names() -> None:
     """A 40-hex pin is a format, not an identity.
 
     `test_ci_actions_are_digest_pinned` matches `@([0-9a-f]{40})` -- any 40 hex
-    characters -- and zizmor's `impostor-commit`, the rule that would ask whether
-    those characters name a commit in the repository the pin names, is disabled
-    repo-wide in `.github/zizmor.yml`. So replacing `actions/checkout@<real sha>`
-    with a SHA from an attacker's fork of checkout kept every gate green.
+    characters -- so replacing `actions/checkout@<real sha>` with a SHA from an
+    attacker's fork of checkout kept every gate green.
 
-    Something has to ask. This asserts that ci.yml still does, and holds its
-    exemption list to the one repository the token genuinely cannot read. Without
-    that, the step's `UNREADABLE_PINS` env var would be a way to switch the gate
-    off one action at a time, in a workflow edit, while the job kept reporting
-    success -- appending `actions/checkout` to it is a one-word diff.
+    zizmor's `impostor-commit` asks a version of the identity question and is
+    live again now that no pin points into a private repository, but it is an
+    upstream audit whose rule can change under this repository. The ci.yml step
+    asks the stricter question in a form this repository owns: is the pinned SHA
+    a *tag ref* of the repository the pin names? Refs are not shared across a
+    fork network, and every pin here is a release tag, which is what Dependabot
+    writes.
+
+    So something has to ask, in this repository, on every run. This asserts that
+    ci.yml still does, and holds its exemption list empty. Without that, the
+    step's `UNREADABLE_PINS` env var would be a way to switch the gate off one
+    action at a time, in a workflow edit, while the job kept reporting success --
+    appending `actions/checkout` to it is a one-word diff.
     """
     root = Path(__file__).parents[1]
     resolving = [
@@ -380,8 +395,8 @@ def test_every_pinned_sha_is_resolved_against_the_repository_it_names() -> None:
     ]
     assert len(resolving) == 1, (
         "expected exactly one workflow to resolve pinned SHAs against the repository "
-        f"they name, found {resolving}. Nothing else checks pin identity: the digest "
-        "gate checks format and zizmor's impostor-commit rule is disabled repo-wide."
+        f"they name, found {resolving}. The digest gate checks format only, and zizmor's "
+        "impostor-commit is an upstream audit this repository does not control."
     )
 
     declarations = [
@@ -527,7 +542,7 @@ def test_every_job_that_holds_a_runner_declares_how_long_it_may_hold_it() -> Non
 
 
 def test_the_local_reference_exemption_cannot_admit_a_remote_action() -> None:
-    """The `uses: ./` exemption must not become a hole for unpinned remotes.
+    """The `uses: $/` and `uses: ./` exemption must not become a hole.
 
     Written because the exemption was added to let the dogfood job reference
     this repository's own composite action. An exemption that also matched
@@ -535,17 +550,33 @@ def test_the_local_reference_exemption_cannot_admit_a_remote_action() -> None:
 
     The `..` case is here because the first draft of the pattern accepted
     `uses: ./../outside`, which leaves the repository. This test caught it
-    before the pattern shipped, which is the reason it exists.
-    """
-    import re as re_module
+    before the pattern shipped, which is the reason it exists. `$/` is
+    GitHub's self-repository form and the same reasoning applies to it, so it
+    carries the same cases rather than being trusted for being newer -- and
+    `$` on its own, with no separator, is refused, because the exemption is
+    for a path inside this repository and not for the sigil.
 
-    local_pattern = re_module.compile(r"^\s*(?:-\s+)?uses:\s*\./(?!\S*\.\.)[^@\s]*$")
-    accepted = ["      - uses: ./", "        uses: ./", "      - uses: ./.github/actions/x"]
+    This reads `_LOCAL_REFERENCE`, the object `test_ci_actions_are_digest_pinned`
+    passes to the gate. It used to compile its own copy of the same source, so it
+    proved things about a regex nothing ran: widening the gate's pattern left this
+    test green, which is an escape hatch guarded by a check of a different one.
+    """
+    local_pattern = _LOCAL_REFERENCE
+    accepted = [
+        "      - uses: ./",
+        "        uses: ./",
+        "      - uses: ./.github/actions/x",
+        "      - uses: $/",
+        "        uses: $/",
+        "      - uses: $/.github/actions/x",
+    ]
     refused = [
         "      - uses: actions/checkout@v4",
         "      - uses: actions/checkout",
         "      - uses: owner/repo@main",
         "      - uses: ./../outside",
+        "      - uses: $/../outside",
+        "      - uses: $",
         "      - uses: docker://alpine",
     ]
     for line in accepted:
