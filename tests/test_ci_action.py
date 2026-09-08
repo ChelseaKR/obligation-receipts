@@ -183,9 +183,7 @@ def test_the_action_uses_other_actions_at_all() -> None:
     `import test_supply_chain` raises `ModuleNotFoundError` -- measured, not assumed.)
     """
     uses = [
-        line
-        for line in _ACTION_TEXT.splitlines()
-        if line.strip().startswith(("- uses:", "uses:"))
+        line for line in _ACTION_TEXT.splitlines() if line.strip().startswith(("- uses:", "uses:"))
     ]
     assert uses, (
         "the action references no other actions, so the digest-pin and publication gates "

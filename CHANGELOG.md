@@ -31,6 +31,52 @@ All notable changes will be documented here.
 
 ### Fixed
 
+- **`action.yml` was outside the pin-identity gate and outside the publication
+  ban.** It is the file other repositories execute, and two of the three
+  supply-chain gates could not see it. Both holes were measured on `origin/main`
+  before anything changed, and in both cases the whole 145-test suite stayed
+  green.
+
+  The digest gate reads `pinned_files` — workflows plus `action.yml` — and proves
+  a pin is forty hex characters. The gate that asks the question that matters,
+  whether that SHA is a *tag ref of the repository the pin names*, read
+  `.github/workflows` alone, both in ci.yml's `grep -r` and in
+  `_pinned_repositories`. Replacing `action.yml`'s `actions/upload-artifact` SHA
+  with forty different hex characters changed nothing anywhere: format checked,
+  identity never asked, in the one file this repository publishes for others to
+  run. That is precisely the substitution
+  `test_every_pinned_sha_is_resolved_against_the_repository_it_names` exists to
+  stop, and its own docstring says so.
+
+  The publication ban read `workflow_files`, so `action.yml`'s only cover was a
+  six-spelling copy of the command list in `tests/test_ci_action.py` against the
+  twelve in `_PUBLISH_COMMANDS`. Adding a `softprops/action-gh-release` step to
+  `action.yml` passed every assertion in the repository. The capability half of
+  the ban — the half that *closes*, because a job cannot create a release without
+  `contents: write` — cannot reach a composite action at all: it declares no
+  `permissions:` and runs under the caller's. So the open-ended command list is
+  the entire cover there, which makes its completeness matter more in that file
+  rather than less, which is the opposite of how the two copies were sized.
+
+  Both gates now read `pinned_files`, and
+  `test_the_pin_identity_step_reads_every_file_the_digest_gate_reads` holds
+  ci.yml's `grep` path arguments to that same set — a relation between two file
+  sets rather than an assertion that the string `action.yml` appears somewhere in
+  the step, so a path added to one and forgotten in the other fails, in either
+  direction.
+
+  Two duplicated literals went with them. `tests/test_ci_action.py` compiled its
+  own copy of the `@[0-9a-f]{40}` pattern, so it proved things about a regex
+  nothing ran — the same shape as the local-reference exemption that was once
+  guarded by a check of a *different* exemption — and it kept its own shorter
+  publish list. A second, weaker copy of a gate is worse than none, because it
+  reads as coverage. Cross-module import was not the repair available: pytest
+  runs `--import-mode=importlib` and `tests/` is not a package, so
+  `import test_supply_chain` raises `ModuleNotFoundError` (measured). What
+  replaces them is the premise the strong gates rest on — that `action.yml`
+  references other actions at all — so if it stops doing so they cannot go
+  quietly vacuous over it.
+
 - **The evaluator's artifact cap is copied into two modules and nothing held the
   copies equal.** `evaluator._MAX_ARTIFACT_BYTES`, `inventory.MAX_ARTIFACT_BYTES` and
   `progress.MAX_ARTIFACT_BYTES` are three separate 2 MiB literals; the two newer ones
