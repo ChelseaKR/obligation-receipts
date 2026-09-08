@@ -331,7 +331,7 @@ def test_sast_actually_scans_every_directory_it_claims_to_scan() -> None:
 #: repository's own tag refs is the part that cannot be satisfied by a fork, because forks
 #: share a repository's git objects but not its refs.
 _PIN_RESOLUTION = "git/matching-refs/tags/"
-_UNREADABLE_PINS = re.compile(r"^\s*UNREADABLE_PINS:\s*(?P<repositories>\S.*?)\s*$", re.M)
+_UNREADABLE_PINS = re.compile(r"^\s*UNREADABLE_PINS:\s*\"?(?P<repositories>.*?)\"?\s*$", re.M)
 
 #: The only pinned repository the pin-identity step may skip. Private, owned by another
 #: account, and unreadable by this workflow's repo-scoped GITHUB_TOKEN, so the API 404s on
@@ -339,7 +339,7 @@ _UNREADABLE_PINS = re.compile(r"^\s*UNREADABLE_PINS:\s*(?P<repositories>\S.*?)\s
 #: nothing automated checks, so the set is pinned down here rather than left to whatever
 #: the workflow happens to say: adding one means editing this line, in a diff a reviewer
 #: reads, instead of appending a word to an env var in ci.yml.
-_EXEMPT_FROM_PIN_IDENTITY = frozenset({"ChelseaKR/portfolio-standards"})
+_EXEMPT_FROM_PIN_IDENTITY: frozenset[str] = frozenset()
 
 
 def _pinned_repositories(root: Path) -> set[str]:

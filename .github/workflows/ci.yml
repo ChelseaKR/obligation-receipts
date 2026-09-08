@@ -216,7 +216,7 @@ jobs:
           # tests/test_supply_chain.py asserts this list names only
           # repositories that are actually pinned, so it cannot grow into a
           # way to exempt a public action.
-          UNREADABLE_PINS: ChelseaKR/portfolio-standards
+          UNREADABLE_PINS: ""
         run: |
           set -euo pipefail
           # `uses[:]` rather than the plain key: this line is inside a file the
