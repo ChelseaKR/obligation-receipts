@@ -28,3 +28,12 @@ it.
 Every parser or trust-boundary change needs a negative test. Do not add contract
 interpretation, arbitrary command execution, network fetching, or a model SDK
 without an accepted ADR and an explicit product-scope decision.
+
+## Commercial solicitation
+
+Issues here are not open to bids. They are design records — written so a decision is
+reconstructable later — not scope documents for outside quoting, and unsolicited offers to
+implement one for a fee will be declined.
+
+Contributions through the normal fork-and-PR process are welcome, and `good first issue` is the
+place to start.
