@@ -752,3 +752,190 @@ def test_a_reader_that_stops_reading_still_gets_the_documented_exit_code(
         returncode = process.wait(timeout=60)
 
     assert returncode == 3, "the missing-evidence verdict must survive the closed pipe"
+
+
+# --- source-absent binding, end to end (#78) ------------------------------
+
+
+def _package_without_the_source(copied_example: Path, tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A producer's package, then the counterparty's copy with the SOW removed.
+
+    Deliberately built by producing the receipt and plan WITH the source
+    present and then handing on everything but the source, because that is the
+    real situation: the digests the counterparty checks were computed by
+    someone who could open the document.
+    """
+    manifest = copied_example / "obligations.toml"
+    receipt = copied_example / "receipt.json"
+    plan = copied_example / "plan.json"
+    assert (
+        main(
+            [
+                "evaluate",
+                str(manifest),
+                "--evidence-root",
+                str(copied_example / "evidence"),
+                "--out",
+                str(receipt),
+            ]
+        )
+        == 0
+    )
+    assert main(["evidence-plan", str(manifest), "--out", str(plan)]) == 0
+
+    counterparty = tmp_path / "counterparty"
+    counterparty.mkdir()
+    copytree(copied_example / "evidence", counterparty / "evidence")
+    for artifact in (manifest, receipt, plan):
+        (counterparty / artifact.name).write_bytes(artifact.read_bytes())
+    assert not (counterparty / "source").exists()
+    return (
+        counterparty / "obligations.toml",
+        counterparty / "receipt.json",
+        counterparty / "plan.json",
+    )
+
+
+def test_a_counterparty_without_the_source_is_refused_by_default(
+    copied_example: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest, receipt, _plan = _package_without_the_source(copied_example, tmp_path)
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "verify",
+                str(receipt),
+                "--manifest",
+                str(manifest),
+                "--evidence-root",
+                str(manifest.parent / "evidence"),
+            ]
+        )
+        == 2
+    )
+    assert "contract source cannot be opened" in capsys.readouterr().err
+
+
+def test_a_counterparty_without_the_source_can_replay_under_the_opt_in(
+    copied_example: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest, receipt, plan = _package_without_the_source(copied_example, tmp_path)
+    producer_plan_digest = json.loads(plan.read_text(encoding="utf-8"))["payload_sha256"]
+    capsys.readouterr()
+
+    assert main(["validate", str(manifest), "--allow-absent-source"]) == 0
+    assert _last_stdout_json(capsys)["contract_source_binding"] == "declared_only"
+
+    assert (
+        main(
+            [
+                "verify-evidence-plan",
+                str(plan),
+                "--manifest",
+                str(manifest),
+                "--allow-absent-source",
+            ]
+        )
+        == 0
+    )
+    replayed = _last_stdout_json(capsys)
+    assert replayed["status"] == "replay_verified"
+    assert replayed["contract_source_binding"] == "declared_only"
+    # The digest the counterparty regenerates is the one the producer wrote.
+    assert replayed["payload_sha256"] == producer_plan_digest
+
+    assert (
+        main(
+            [
+                "verify",
+                str(receipt),
+                "--manifest",
+                str(manifest),
+                "--evidence-root",
+                str(manifest.parent / "evidence"),
+                "--allow-absent-source",
+            ]
+        )
+        == 0
+    )
+    verified = _last_stdout_json(capsys)
+    assert verified["status"] == "verified"
+    assert verified["replayed"] is True
+    assert verified["contract_source_binding"] == "declared_only"
+    # `null`, not 4. Every obligation in the example declares a span, and not
+    # one of them was resolved against the approved document on this run.
+    assert verified["source_spans_verified"] is None
+
+
+def test_the_opt_in_does_not_change_output_when_the_source_is_present(
+    example_manifest: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Without the flag, stdout is byte-identical; with it, the binding is named.
+
+    The field is reported only when the caller asked for the weaker mode, so
+    every existing invocation's output is unchanged. It is not omitted to hide
+    anything: under the default a manifest that loaded at all is `verified` by
+    construction, because absence is a refusal there.
+    """
+    assert main(["validate", str(example_manifest)]) == 0
+    default = capsys.readouterr().out
+    assert "contract_source_binding" not in default
+
+    assert main(["validate", str(example_manifest), "--allow-absent-source"]) == 0
+    opted_in = capsys.readouterr().out
+    assert json.loads(opted_in)["contract_source_binding"] == "verified"
+    assert json.loads(opted_in) | {"contract_source_binding": None} == json.loads(default) | {
+        "contract_source_binding": None
+    }
+
+
+@pytest.mark.parametrize("command", ["evaluate", "freeze-evidence"])
+def test_receipt_and_lock_producing_commands_refuse_the_opt_in(
+    copied_example: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+) -> None:
+    out = tmp_path / "written.json"
+    assert (
+        main(
+            [
+                command,
+                str(copied_example / "obligations.toml"),
+                "--evidence-root",
+                str(copied_example / "evidence"),
+                "--out",
+                str(out),
+                "--allow-absent-source",
+            ]
+        )
+        == 2
+    )
+    assert "open decision recorded at" in capsys.readouterr().err
+    assert not out.exists(), "a refused command must write nothing"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["verify-evidence-plan", "PLAN", "--allow-absent-source"],
+        ["verify", "RECEIPT", "--allow-absent-source"],
+    ],
+)
+def test_the_opt_in_is_refused_where_no_manifest_is_loaded(
+    copied_example: Path,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+) -> None:
+    substitutions = {
+        "PLAN": str(copied_example / "plan.json"),
+        "RECEIPT": str(copied_example / "receipt.json"),
+    }
+    assert main([substitutions.get(item, item) for item in argv]) == 2
+    assert "no meaning without --manifest" in capsys.readouterr().err

@@ -1,11 +1,12 @@
 import os
 from pathlib import Path
+from shutil import rmtree
 
 import pytest
 
 import obligation_receipts.manifest as manifest_module
 from obligation_receipts.manifest import ManifestError, load_manifest
-from obligation_receipts.models import Classification
+from obligation_receipts.models import Classification, SourceBinding
 
 
 def _replace(path: Path, old: str, new: str) -> None:
@@ -379,3 +380,159 @@ def test_rejects_a_manifest_that_is_not_a_regular_file(tmp_path: Path) -> None:
     os.mkfifo(fifo)
     with pytest.raises(ManifestError, match="cannot be read safely"):
         load_manifest(fifo)
+
+
+# --- source-absent binding (#78) ------------------------------------------
+#
+# The default is asserted first and asserted by MESSAGE, because the whole
+# argument for the opt-in is that it changes nothing unless it is asked for.
+
+
+def test_absent_source_is_the_same_refusal_it_always_was(copied_example: Path) -> None:
+    rmtree(copied_example / "source")
+    with pytest.raises(ManifestError, match="contract source cannot be opened"):
+        load_manifest(copied_example / "obligations.toml")
+
+
+def test_absent_source_loads_declared_only_under_the_opt_in(copied_example: Path) -> None:
+    rmtree(copied_example / "source")
+    manifest = load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
+    assert manifest.source_binding is SourceBinding.DECLARED_ONLY
+    assert manifest.contract.source_sha256 == (
+        "b94a87890d23aaedc93c143a00d5fc4f96f7ed09a9f839bb4aa8d9c841562bed"
+    )
+
+
+def test_a_present_matching_source_is_verified_even_under_the_opt_in(
+    copied_example: Path,
+) -> None:
+    manifest = load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
+    assert manifest.source_binding is SourceBinding.VERIFIED
+
+
+def test_the_manifest_digest_is_the_same_under_both_bindings(copied_example: Path) -> None:
+    """The property that makes independent replay possible at all.
+
+    If the binding entered `normalized_dict`, a counterparty regenerating
+    without the source would compute a different `manifest_sha256` from the one
+    the receipt and the plan record, and every replay would fail for a reason
+    unrelated to the evidence.
+    """
+    manifest_path = copied_example / "obligations.toml"
+    verified = load_manifest(manifest_path)
+    rmtree(copied_example / "source")
+    declared_only = load_manifest(manifest_path, allow_absent_source=True)
+    assert declared_only.source_binding is SourceBinding.DECLARED_ONLY
+    assert declared_only.manifest_sha256 == verified.manifest_sha256
+    assert declared_only.normalized_dict() == verified.normalized_dict()
+    assert "source_binding" not in verified.normalized_dict()
+
+
+def test_a_present_source_that_does_not_match_is_refused_under_the_opt_in(
+    copied_example: Path,
+) -> None:
+    """Bytes present with a wrong digest is a refusal, never a downgrade."""
+    source = copied_example / "source" / "section-508-acceptance.txt"
+    source.write_text("tampered", encoding="utf-8")
+    with pytest.raises(ManifestError, match="source digest does not match"):
+        load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
+
+
+@pytest.mark.parametrize(
+    ("source_path", "message"),
+    [
+        ("../outside.txt", "escapes its declared root"),
+        ("https:source.txt", "portable and relative"),
+    ],
+)
+def test_the_opt_in_does_not_widen_to_unsafe_source_paths(
+    copied_example: Path,
+    source_path: str,
+    message: str,
+) -> None:
+    """Only ABSENCE is downgradable.
+
+    A traversal or a non-portable spelling raises `BoundedPathError`, not
+    `FileNotFoundError`, so it stays a refusal in both modes -- and the target
+    of the traversal does not exist either, which is precisely the confusion
+    a single `except (BoundedPathError, FileNotFoundError)` would have allowed.
+    """
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        'source_path = "source/section-508-acceptance.txt"',
+        f'source_path = "{source_path}"',
+    )
+    with pytest.raises(ManifestError, match=message):
+        load_manifest(manifest_path, allow_absent_source=True)
+
+
+def test_a_source_that_is_a_directory_is_refused_under_the_opt_in(
+    copied_example: Path,
+) -> None:
+    source = copied_example / "source" / "section-508-acceptance.txt"
+    source.unlink()
+    source.mkdir()
+    with pytest.raises(ManifestError, match="not a regular file"):
+        load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
+
+
+#: `examples/accessibility-acceptance/obligations.toml`'s first obligation,
+#: written out as a literal rather than read back from the manifest under test,
+#: so that an edit which fails to land cannot still satisfy the comparison.
+_UNEDITED_FIRST_OBLIGATION_TEXT = (
+    "The delivered service must have zero critical automated accessibility\n"
+    "violations in the approved acceptance run."
+)
+
+
+# --- source-absent binding meets declared source spans (#78 x #79) ---------
+#
+# The example manifest declares a span on every obligation, so this
+# interaction is on the main path of the feature rather than at its edge.
+
+
+def test_declared_only_still_loads_a_manifest_whose_obligations_declare_spans(
+    copied_example: Path,
+) -> None:
+    rmtree(copied_example / "source")
+    manifest = load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
+    assert manifest.source_binding is SourceBinding.DECLARED_ONLY
+    assert manifest.source_spans_declared == 4
+
+
+def test_a_span_digest_that_contradicts_its_own_text_is_refused_source_absent(
+    copied_example: Path,
+) -> None:
+    """The half of the span check that never needed the document still runs.
+
+    `_bind_source_spans` requires `sha256(quoted) == span.sha256` AND
+    `quoted == text`, so the two together imply `sha256(text) == span.sha256`.
+    That implication holds without the source, and a manifest whose quotation
+    was edited after its span was recorded is the same defect either way.
+    """
+    manifest_path = copied_example / "obligations.toml"
+    _replace(
+        manifest_path,
+        "The delivered service must have zero critical automated accessibility",
+        "The delivered service may have zero critical automated accessibility",
+    )
+    # The edit has to actually land, or this test passes on a mutation that was
+    # never applied. Checked against the file rather than against a reload,
+    # because with the source still present the reload is refused -- correctly,
+    # and for the other half of the check.
+    assert _UNEDITED_FIRST_OBLIGATION_TEXT not in manifest_path.read_text(encoding="utf-8")
+    rmtree(copied_example / "source")
+    with pytest.raises(ManifestError, match="does not match the obligation text"):
+        load_manifest(manifest_path, allow_absent_source=True)
+
+
+def test_an_absent_source_is_not_read_as_an_empty_one(copied_example: Path) -> None:
+    """`b""` would fail every span as running past the end of the source.
+
+    That would report "the document is not in hand" as "the quotation is
+    wrong" -- a different, and defamatory, finding about the approved manifest.
+    """
+    rmtree(copied_example / "source")
+    manifest = load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
+    assert manifest.obligations[0].source_span is not None

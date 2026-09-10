@@ -35,7 +35,7 @@ from obligation_receipts.lock import (
     write_evidence_lock,
 )
 from obligation_receipts.manifest import ManifestError, load_manifest
-from obligation_receipts.models import JsonValue
+from obligation_receipts.models import JsonValue, Manifest, SourceBinding
 from obligation_receipts.paths import BoundedPathError
 from obligation_receipts.plan import (
     EvidencePlanError,
@@ -63,6 +63,29 @@ from obligation_receipts.single_check import (
     evidence_check_exit_code,
 )
 
+#: The opt-in described in #78, and the one sentence that describes it.
+#:
+#: Registered on the commands that read a manifest and produce no receipt and
+#: no evidence lock, and -- deliberately -- on `evaluate` and `freeze-evidence`
+#: too, where the handler refuses it outright. A verb that silently lacked the
+#: flag would fail with `unrecognized arguments`, which reads like a typo
+#: rather than a boundary this project drew on purpose.
+_ALLOW_ABSENT_SOURCE_HELP = (
+    "load the manifest against contract.source_sha256 alone when the contract "
+    "document itself is not on disk. The manifest is then bound declared_only: "
+    "it establishes that a source digest is named, never that the digest is of "
+    "the approved document. A present source that hashes to anything else is "
+    "still refused"
+)
+
+
+def _add_allow_absent_source(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--allow-absent-source",
+        action="store_true",
+        help=_ALLOW_ABSENT_SOURCE_HELP,
+    )
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -74,6 +97,7 @@ def _parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser(
         "validate", help="validate and source-bind one or more manifests"
     )
+    _add_allow_absent_source(validate)
     # `nargs="+"` so the pre-commit hook in .pre-commit-hooks.yaml works: hooks
     # receive every changed matching file in ONE invocation, so a single-arg
     # parser would fail on a repository holding two manifests -- and would fail
@@ -94,6 +118,7 @@ def _parser() -> argparse.ArgumentParser:
             "if any declared artifact is not exactly what the lock froze"
         ),
     )
+    _add_allow_absent_source(evaluate)
 
     ledger_append = subparsers.add_parser(
         "ledger-append",
@@ -115,6 +140,7 @@ def _parser() -> argparse.ArgumentParser:
     freeze.add_argument("manifest", type=Path)
     freeze.add_argument("--evidence-root", type=Path, required=True)
     freeze.add_argument("--out", type=Path, required=True)
+    _add_allow_absent_source(freeze)
 
     evidence_plan = subparsers.add_parser(
         "evidence-plan",
@@ -127,6 +153,7 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include sensitive manifest-declared locators, paths, and reasons",
     )
+    _add_allow_absent_source(evidence_plan)
 
     verify_plan = subparsers.add_parser(
         "verify-evidence-plan",
@@ -134,6 +161,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     verify_plan.add_argument("plan", type=Path)
     verify_plan.add_argument("--manifest", type=Path)
+    _add_allow_absent_source(verify_plan)
 
     check_evidence = subparsers.add_parser(
         "check-evidence",
@@ -194,6 +222,7 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("receipt", type=Path)
     verify.add_argument("--manifest", type=Path)
     verify.add_argument("--evidence-root", type=Path)
+    _add_allow_absent_source(verify)
 
     research = subparsers.add_parser(
         "research-metrics",
@@ -202,6 +231,60 @@ def _parser() -> argparse.ArgumentParser:
     research.add_argument("rater_a", type=Path)
     research.add_argument("rater_b", type=Path)
     return parser
+
+
+#: Verbs that may not run against a manifest bound `declared_only`.
+#:
+#: `evaluate` writes a receipt and `freeze-evidence` writes the lock a receipt
+#: is later produced under. Both are inputs to the ledger, and #78 records the
+#: question they raise as open: producing a receipt whose contract binding was
+#: never checked is a stronger concession than reading one, and the argument
+#: runs both ways. This refuses rather than deciding, and it refuses in the one
+#: place both verbs pass through.
+_SOURCE_ABSENT_REFUSAL = (
+    "--allow-absent-source is not available for commands that write a receipt "
+    "or an evidence lock; whether a receipt may be produced against an "
+    "unchecked contract binding is an open decision recorded at "
+    "https://github.com/ChelseaKR/obligation-receipts/issues/78"
+)
+
+
+def _refuse_source_absent(allow_absent_source: bool) -> None:
+    if allow_absent_source:
+        raise ManifestError(_SOURCE_ABSENT_REFUSAL)
+
+
+def _require_manifest_for_binding(
+    manifest_path: Path | None,
+    allow_absent_source: bool,
+) -> None:
+    """Refuse `--allow-absent-source` where no manifest is loaded at all.
+
+    `verify-evidence-plan` and `verify` both read a manifest only when one is
+    named. Accepting the flag without one would let it sit in a command line
+    doing nothing, and a flag that silently does nothing is read as a
+    guarantee that something was relaxed.
+    """
+    if allow_absent_source and manifest_path is None:
+        raise ManifestError("--allow-absent-source has no meaning without --manifest")
+
+
+def _binding_field(
+    allow_absent_source: bool,
+    manifest: Manifest | None,
+) -> dict[str, JsonValue]:
+    """The reported binding, and only when the caller asked for the weaker mode.
+
+    Omitted under the default so every existing invocation's stdout stays
+    byte-identical. Nothing is lost by the omission: under the default a
+    manifest that loaded at all is `verified` by construction, because absence
+    is a refusal there. When the flag IS given the field is always present and
+    names `verified` or `declared_only`, so a machine reader never has to infer
+    a binding from a missing key.
+    """
+    if not allow_absent_source or manifest is None:
+        return {}
+    return {"contract_source_binding": manifest.source_binding.value}
 
 
 def _print_json(value: dict[str, JsonValue]) -> None:
@@ -221,7 +304,7 @@ def _print_json(value: dict[str, JsonValue]) -> None:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
-def _validate(paths: list[Path]) -> int:
+def _validate(paths: list[Path], allow_absent_source: bool) -> int:
     """Validate every named manifest, one canonical JSON line each.
 
     Each manifest is loaded in turn and the first unusable one raises, so the
@@ -229,7 +312,7 @@ def _validate(paths: list[Path]) -> int:
     evaluated.
     """
     for path in paths:
-        manifest = load_manifest(path)
+        manifest = load_manifest(path, allow_absent_source=allow_absent_source)
         _print_json(
             {
                 "contract_id": manifest.contract.contract_id,
@@ -241,6 +324,7 @@ def _validate(paths: list[Path]) -> int:
                 # statement about this manifest.
                 "source_spans_declared": manifest.source_spans_declared,
                 "status": "valid",
+                **_binding_field(allow_absent_source, manifest),
             }
         )
     return OK
@@ -252,7 +336,9 @@ def _evaluate(
     out: Path,
     generated_at: str | None,
     lock_path: Path | None,
+    allow_absent_source: bool,
 ) -> int:
+    _refuse_source_absent(allow_absent_source)
     manifest = load_manifest(manifest_path)
     # Enforced before anything is evaluated, and it raises rather than
     # returning a status. A lock that reported a mismatch and let the run
@@ -325,7 +411,12 @@ def _ledger_verify(ledger_path: Path) -> int:
     return OBSERVED_FAILURE if problems else OK
 
 
-def _freeze_evidence(manifest_path: Path, evidence_root: Path, out: Path) -> int:
+def _freeze_evidence(
+    manifest_path: Path,
+    evidence_root: Path,
+    out: Path,
+    allow_absent_source: bool,
+) -> int:
     """Digest what was collected, judging none of it.
 
     Exits OK whatever the evidence says. A lock over evidence that is entirely
@@ -334,6 +425,7 @@ def _freeze_evidence(manifest_path: Path, evidence_root: Path, out: Path) -> int
     finding this command did not make.
     """
 
+    _refuse_source_absent(allow_absent_source)
     manifest = load_manifest(manifest_path)
     lock = build_evidence_lock(manifest, evidence_root)
     write_evidence_lock(out, lock)
@@ -357,9 +449,11 @@ def _evidence_plan(
     manifest_path: Path,
     out: Path,
     include_local_details: bool,
+    allow_absent_source: bool,
 ) -> int:
+    manifest = load_manifest(manifest_path, allow_absent_source=allow_absent_source)
     plan = build_evidence_plan(
-        load_manifest(manifest_path),
+        manifest,
         include_local_details=include_local_details,
     )
     write_evidence_plan(out, plan)
@@ -372,20 +466,31 @@ def _evidence_plan(
             "obligation_count": payload["obligation_count"],
             "payload_sha256": plan["payload_sha256"],
             "status": "plan_generated",
+            **_binding_field(allow_absent_source, manifest),
         }
     )
     return OK
 
 
-def _verify_evidence_plan(plan_path: Path, manifest_path: Path | None) -> int:
+def _verify_evidence_plan(
+    plan_path: Path,
+    manifest_path: Path | None,
+    allow_absent_source: bool,
+) -> int:
+    _require_manifest_for_binding(manifest_path, allow_absent_source)
     plan = load_evidence_plan(plan_path)
-    manifest = load_manifest(manifest_path) if manifest_path is not None else None
+    manifest = (
+        load_manifest(manifest_path, allow_absent_source=allow_absent_source)
+        if manifest_path is not None
+        else None
+    )
     payload_sha256 = verify_evidence_plan(plan, manifest)
     _print_json(
         {
             "manifest_regenerated": manifest is not None,
             "payload_sha256": payload_sha256,
             "status": ("replay_verified" if manifest is not None else "checksum_self_consistent"),
+            **_binding_field(allow_absent_source, manifest),
         }
     )
     return OK
@@ -458,10 +563,13 @@ def _verify(
     receipt_path: Path,
     manifest_path: Path | None,
     evidence_root: Path | None,
+    allow_absent_source: bool,
 ) -> int:
     if (manifest_path is None) != (evidence_root is None):
         raise ReceiptError("--manifest and --evidence-root must be supplied together")
+    _require_manifest_for_binding(manifest_path, allow_absent_source)
     receipt = load_receipt(receipt_path)
+    manifest = None
     replay: dict[str, JsonValue] | None = None
     # `null`, not `0`, when no manifest was supplied. Without a manifest the
     # approved source is not in hand, so no quotation was checked against it --
@@ -470,8 +578,13 @@ def _verify(
     # this repository refuses inside a receipt.
     spans_verified: int | None = None
     if manifest_path is not None and evidence_root is not None:
-        manifest = load_manifest(manifest_path)
-        spans_verified = manifest.source_spans_declared
+        manifest = load_manifest(manifest_path, allow_absent_source=allow_absent_source)
+        # Still `null`, not a count, when the manifest was bound `declared_only`.
+        # No declared span was resolved against the approved document in that
+        # mode, so reporting the number that were *declared* as the number
+        # verified would publish an unperformed check as a performed one.
+        if manifest.source_binding is SourceBinding.VERIFIED:
+            spans_verified = manifest.source_spans_declared
         replay = evaluate_manifest(manifest, evidence_root).payload()
     # Reading the receipt, manifest, and evidence root above can only fail as an
     # input error. From here on every failure is a finding about the receipt
@@ -489,6 +602,7 @@ def _verify(
             "replayed": replay is not None,
             "source_spans_verified": spans_verified,
             "status": "verified",
+            **_binding_field(allow_absent_source, manifest),
         }
     )
     return OK
@@ -509,13 +623,22 @@ def _research_metrics(rater_a: Path, rater_b: Path) -> int:
 #: entry here, is caught by a test rather than by a missing branch that
 #: silently returns INPUT_ERROR.
 _COMMANDS: dict[str, tuple[Callable[..., int], tuple[str, ...]]] = {
-    "validate": (_validate, ("manifest",)),
-    "evaluate": (_evaluate, ("manifest", "evidence_root", "out", "generated_at", "lock")),
-    "freeze-evidence": (_freeze_evidence, ("manifest", "evidence_root", "out")),
+    "validate": (_validate, ("manifest", "allow_absent_source")),
+    "evaluate": (
+        _evaluate,
+        ("manifest", "evidence_root", "out", "generated_at", "lock", "allow_absent_source"),
+    ),
+    "freeze-evidence": (
+        _freeze_evidence,
+        ("manifest", "evidence_root", "out", "allow_absent_source"),
+    ),
     "ledger-append": (_ledger_append, ("receipt", "ledger")),
     "ledger-verify": (_ledger_verify, ("ledger",)),
-    "evidence-plan": (_evidence_plan, ("manifest", "out", "include_local_details")),
-    "verify-evidence-plan": (_verify_evidence_plan, ("plan", "manifest")),
+    "evidence-plan": (
+        _evidence_plan,
+        ("manifest", "out", "include_local_details", "allow_absent_source"),
+    ),
+    "verify-evidence-plan": (_verify_evidence_plan, ("plan", "manifest", "allow_absent_source")),
     "check-evidence": (_check_evidence, ("manifest", "evidence_id", "evidence_root")),
     "diff-receipts": (_diff_receipts, ("prior", "current", "markdown")),
     "plan-status": (
@@ -526,7 +649,7 @@ _COMMANDS: dict[str, tuple[Callable[..., int], tuple[str, ...]]] = {
         _audit_evidence_root,
         ("manifest", "evidence_root", "include_local_details", "markdown"),
     ),
-    "verify": (_verify, ("receipt", "manifest", "evidence_root")),
+    "verify": (_verify, ("receipt", "manifest", "evidence_root", "allow_absent_source")),
     "research-metrics": (_research_metrics, ("rater_a", "rater_b")),
 }
 

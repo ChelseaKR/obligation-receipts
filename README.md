@@ -131,6 +131,49 @@ authenticates approval or proves evidence sufficiency. See the
 Generation stdout reports only manifest/count/digest/status metadata. It does
 not repeat the operator-supplied output path.
 
+### Verifying without the contract document
+
+Every manifest-bound command re-hashes `contract.source_path`, so by default a
+counterparty needs the approved contract document itself before they can check
+anything. That is often the confidential half of an acceptance package: a prime
+who cannot show a subcontractor the SOW cannot let them check the receipt
+either.
+
+`--allow-absent-source` loads the manifest against `contract.source_sha256`
+alone when the document is not on disk:
+
+```sh
+obligation-receipts verify receipt.json \
+  --manifest obligations.toml \
+  --evidence-root evidence \
+  --allow-absent-source
+```
+
+The command reports `"contract_source_binding": "declared_only"` beside its
+usual output. **That establishes that the manifest names a source digest, never
+that the digest is of the approved document.** A source that is present and
+hashes to anything else is still refused, in both modes, as is an unsafe or
+non-regular source path; only absence is downgradable, and only when the flag is
+given. Without the flag nothing changes, down to the error text.
+
+`manifest_sha256` is identical under both bindings, which is what makes the
+replay possible at all — see [the evidence-plan
+format](docs/EVIDENCE-PLAN.md#the-source-binding-and-what-declared_only-does-not-establish).
+
+Declared `source_span`s are affected. An offset and a length have nothing to be
+resolved against when the document is not in hand, so they are not checked; the
+span digest and the obligation text are still compared to each other, because
+that comparison never needed the document. `verify` therefore reports
+`"source_spans_verified": null` under a `declared_only` binding — not the number
+of spans the manifest declares, which nothing checked against the approved
+source.
+
+The flag is accepted by `validate`, `evidence-plan`, `verify-evidence-plan` and
+`verify`. `evaluate` and `freeze-evidence` refuse it: whether a *receipt* may be
+produced against a contract binding that was never checked is a stronger
+concession than reading one, and it is an open decision recorded at
+[#78](https://github.com/ChelseaKR/obligation-receipts/issues/78).
+
 `check-evidence` evaluates exactly one declared evidence item without reading
 its siblings. Its canonical result omits artifact paths, assertion details,
 evidence content, evaluator detail text, and all aggregate dispositions. It is
