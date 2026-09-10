@@ -120,13 +120,86 @@ _PUBLISH_COMMANDS = (
 _PUBLISH_PERMISSIONS = ("contents: write", "packages: write")
 
 
+#: The one workflow allowed to hold publication authority, and the only two jobs in
+#: it allowed to exercise any. Named here rather than derived, so that widening the
+#: boundary takes editing this line -- a diff a reviewer reads -- instead of adding a
+#: `contents: write` to a job somewhere and having nothing notice.
+_RELEASE_WORKFLOW = "release.yml"
+_PUBLICATION_JOBS = ("github-release", "pypi-publish")
+
+#: Ways to hold a long-lived registry credential. Trusted Publishing exchanges a
+#: short-lived OIDC token for an upload, so any of these appearing anywhere means the
+#: repository has grown a stored password that outlives the run that used it.
+_LONG_LIVED_CREDENTIALS = (
+    "PYPI_API_TOKEN",
+    "TWINE_PASSWORD",
+    "TWINE_USERNAME",
+    "secrets.PYPI",
+    "password:",
+)
+
+
+def _executable_lines(text: str) -> str:
+    """One workflow with its comments and `needs:` edges removed.
+
+    Two kinds of line name a publication capability without being one, and both
+    appear in `release.yml` now that it has a publish path:
+
+    * a comment. `# ... confined to `github-release` and `pypi-publish`` describes the
+      boundary; it cannot upload anything. Stripping comments can only make the scan
+      weaker, never blind it to an executable line, because a commented-out command
+      does not run.
+    * a `needs:` edge. `needs: [authorize, build, pypi-publish]` in `verify-published`
+      is a dependency on the publishing job, not a second publishing job.
+    """
+    kept = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith("needs:"):
+            kept.append("")
+            continue
+        kept.append(re.sub(r"\s+#.*$", "", line))
+    return "\n".join(kept)
+
+
 def _publication_capabilities(text: str) -> list[str]:
     """Everything in one workflow that could publish a release or a distribution."""
     return [needle for needle in _PUBLISH_COMMANDS + _PUBLISH_PERMISSIONS if needle in text]
 
 
-def test_nothing_this_repository_executes_can_publish_a_release() -> None:
-    """The publication ban has to cover every file GitHub runs, not every workflow.
+def _release_workflow(root: Path) -> str:
+    return (root / ".github/workflows" / _RELEASE_WORKFLOW).read_text(encoding="utf-8")
+
+
+def test_the_capability_reader_can_fail() -> None:
+    """Both halves of the reader, on synthetic text, before any clean result is read.
+
+    A scan that reports nothing because its reader is broken is indistinguishable
+    from a scan that reports nothing because the files are clean.
+    """
+    assert _publication_capabilities("permissions:\n  contents: write\n") == ["contents: write"]
+    assert _publication_capabilities("run: twine upload dist/*\n") == ["twine upload"]
+    assert _publication_capabilities("permissions:\n  contents: read\n") == []
+
+    # The case that reaches `action.yml`: a composite action declares no `permissions:`,
+    # so a publisher inside one is visible to this reader only as a command or a `uses:`.
+    assert _publication_capabilities("- uses: softprops/action-gh-release@" + "0" * 40) == [
+        "softprops/action-gh-release"
+    ]
+
+    # The comment and `needs:` elisions must drop those lines and nothing else.
+    assert _publication_capabilities(_executable_lines("      # gh release create\n")) == []
+    assert _publication_capabilities(_executable_lines("    needs: [build, pypi-publish]\n")) == []
+    assert _publication_capabilities(_executable_lines("      - run: gh release create x\n")) == [
+        "gh release create"
+    ]
+    assert _publication_capabilities(
+        _executable_lines("    permissions:\n      contents: write # needed\n")
+    ) == ["contents: write"]
+
+
+def test_nothing_outside_the_release_path_that_this_repository_executes_can_publish() -> None:
+    """The ban covers every file GitHub runs, minus the one workflow allowed to publish.
 
     This read a hardcoded `.github/workflows/release.yml`. A second workflow --
     `publish.yml`, say -- could have declared `contents: write` and run
@@ -139,12 +212,20 @@ def test_nothing_this_repository_executes_can_publish_a_release() -> None:
     which is exactly why the capability half of this ban, the half that closes, cannot
     reach it. The command list was its only cover, and its only copy of that list lived
     in `tests/test_ci_action.py` and held six spellings rather than twelve. Measured on
-    `origin/main` before this change: adding a `softprops/action-gh-release` step to
+    `origin/main` before that change: adding a `softprops/action-gh-release` step to
     `action.yml` left the entire suite green.
 
     So the universe is `pinned_files` -- the same universe the digest gate reads -- and
     the two are held equal by
     `test_the_pin_identity_step_reads_every_file_the_digest_gate_reads`.
+
+    The composite action keeps its own reason for holding no publication authority, and
+    it is not the same reason `release.yml` is exempt: the action runs inside OTHER
+    repositories, on their pull requests, with whatever token they hand it, so a release
+    or upload step here would be a release step in someone else's repository triggered
+    by their contributors. `release.yml` is exempt because it runs only on an explicit
+    dispatch against a signed tag authorized against trusted main. Widening the exemption
+    from that one workflow to anything else would be a different decision.
 
     Widened in the other direction too. The old list named four publish commands;
     the set of ways to upload a distribution is not four, and is not closed. So the
@@ -152,6 +233,12 @@ def test_nothing_this_repository_executes_can_publish_a_release() -> None:
     list precisely because ci.yml's pin-identity step uses it under `contents: read`,
     and it is the permission blocklist, not a spelling, that stops the same binary
     from being pointed at the releases endpoint.
+
+    Until 2026-09-06 this ban was absolute: no workflow here held publication
+    authority at all, recorded as a decision in `docs/RELEASE.md` and waived as
+    WVR-009 rather than left as an unexplained gap. `release.yml` now has a publish
+    path, so the ban is scoped to it rather than dropped -- and inside it, scoped
+    again to two jobs by the test below.
     """
     root = Path(__file__).parents[1]
     executed = pinned_files(root)
@@ -161,31 +248,139 @@ def test_nothing_this_repository_executes_can_publish_a_release() -> None:
         "downstream repositories actually run"
     )
 
-    # The reader must be able to fail. Both halves, on synthetic text, before any
-    # clean result from the real files is worth reading. The third case is the one
-    # that reaches `action.yml`: a composite action declares no `permissions:`, so a
-    # publisher there is visible only as a command.
-    assert _publication_capabilities("permissions:\n  contents: write\n") == ["contents: write"]
-    assert _publication_capabilities("run: twine upload dist/*\n") == ["twine upload"]
-    assert _publication_capabilities("- uses: softprops/action-gh-release@" + "0" * 40) == [
-        "softprops/action-gh-release"
-    ]
-    assert _publication_capabilities("permissions:\n  contents: read\n") == []
+    others = [path for path in executed if path.name != _RELEASE_WORKFLOW]
+    assert others, "the release workflow is the only executed file; this gate reads nothing"
+    assert len(others) < len(executed), (
+        f"{_RELEASE_WORKFLOW} is not among the files this gate reads, so exempting it "
+        "exempts nothing and the exemption has stopped describing anything"
+    )
 
     offenders = [
         f"{path.name}: {found}"
-        for path in executed
-        for found in _publication_capabilities(path.read_text(encoding="utf-8"))
+        for path in others
+        for found in _publication_capabilities(_executable_lines(path.read_text(encoding="utf-8")))
     ]
     assert not offenders, (
         f"these files can publish a release or a distribution: {offenders}. "
-        "Publication is a human step performed against a signed, attested candidate; "
-        "nothing this repository executes is permitted to do it."
+        f"Publication is confined to {_RELEASE_WORKFLOW}, which runs only on an explicit "
+        "dispatch against a signed tag that has been authorized against trusted main; "
+        "nothing else this repository executes is permitted to do it."
     )
 
-    release = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "name: release-candidate" in release, (
-        "release.yml must announce itself as a candidate builder, not a publisher"
+
+def test_publication_capability_is_confined_to_two_jobs_of_the_release_workflow() -> None:
+    """Inside `release.yml`, only the two checkout-free publication jobs may publish.
+
+    The build job executes repository code at an authorized tag. It must not also be
+    able to publish what it built, because then a defect anywhere in the toolchain it
+    runs is a defect with `contents: write`. The split is the control; naming it here
+    is what stops it being undone by moving one line.
+    """
+    root = Path(__file__).parents[1]
+    text = _executable_lines(_release_workflow(root))
+    jobs = _jobs(text)
+    assert jobs, "no jobs parsed out of the release workflow; the reader is broken"
+    assert set(_PUBLICATION_JOBS) <= set(jobs), (
+        f"{sorted(set(_PUBLICATION_JOBS) - set(jobs))} are named as the publication jobs "
+        "but do not exist in the workflow"
+    )
+
+    # Everything before `jobs:` -- the workflow-level `permissions:` block above all
+    # else -- must hold no publication capability, or every job inherits one.
+    header = text.split("\njobs:", 1)[0]
+    assert not _publication_capabilities(header), (
+        "the release workflow grants a publication capability at workflow level, so "
+        f"every job in it inherits one: {_publication_capabilities(header)}"
+    )
+
+    offenders = {
+        name: found
+        for name, block in jobs.items()
+        if name not in _PUBLICATION_JOBS and (found := _publication_capabilities("\n".join(block)))
+    }
+    assert not offenders, (
+        f"these release jobs hold a publication capability: {offenders}. Only "
+        f"{list(_PUBLICATION_JOBS)} may, and they exist so that the job which builds "
+        "and executes repository code is not the job that can publish it."
+    )
+
+    granted = {
+        name: found
+        for name in _PUBLICATION_JOBS
+        if (found := _publication_capabilities("\n".join(jobs[name])))
+    }
+    assert set(granted) == set(_PUBLICATION_JOBS), (
+        f"{sorted(set(_PUBLICATION_JOBS) - set(granted))} hold no publication capability "
+        "at all, so this gate is guarding a boundary that has moved somewhere it cannot see"
+    )
+
+
+def test_the_publication_jobs_never_check_out_or_rebuild() -> None:
+    """A publishing job must receive bytes, not a toolchain.
+
+    Anything the publication jobs rebuilt would not be covered by the attestation the
+    build job issued, so the published artifact and the attested artifact could differ
+    with nothing to notice. These jobs therefore have no checkout and no build.
+    """
+    root = Path(__file__).parents[1]
+    jobs = _jobs(_executable_lines(_release_workflow(root)))
+    forbidden = ("actions/checkout", "uses: ./", "uv build", "make ", "uv sync")
+    offenders = {
+        name: [needle for needle in forbidden if needle in "\n".join(jobs[name])]
+        for name in _PUBLICATION_JOBS
+    }
+    offenders = {name: found for name, found in offenders.items() if found}
+    assert not offenders, (
+        f"these publication jobs check out or execute repository code: {offenders}. "
+        "They must publish the exact bytes the build job attested."
+    )
+    assert "sha256sum -c" in "\n".join(jobs["pypi-publish"]), (
+        "the PyPI job does not re-check the distribution digests against the manifest "
+        "the build job attested, so it cannot tell that it is uploading those bytes"
+    )
+
+
+def test_pypi_upload_uses_trusted_publishing_and_no_stored_credential() -> None:
+    """The registry upload must be an OIDC exchange, not a password in a secret store.
+
+    A stored PyPI token is a credential that outlives every run that uses it, is
+    readable by any workflow in the repository that names it, and cannot be scoped to
+    a single environment. Trusted Publishing has none of those properties: the claim
+    is minted per run, for this repository, this workflow file and this environment.
+    """
+    root = Path(__file__).parents[1]
+    jobs = _jobs(_executable_lines(_release_workflow(root)))
+    publish = "\n".join(jobs["pypi-publish"])
+
+    assert "pypa/gh-action-pypi-publish" in publish, (
+        "the PyPI job does not use the official publisher action"
+    )
+    assert "id-token: write" in publish, (
+        "the PyPI job has no OIDC token permission, so Trusted Publishing cannot work"
+    )
+    assert re.search(r"^    environment:\n      name: pypi$", publish, re.M), (
+        "the PyPI job must run in the `pypi` environment: the environment name is half "
+        "of what PyPI matches a Trusted Publisher against, and it is also the only place "
+        "a required reviewer can be attached to the upload"
+    )
+
+    stored = [
+        f"{workflow.name}: {needle}"
+        for workflow in workflow_files(root)
+        for needle in _LONG_LIVED_CREDENTIALS
+        if needle in _executable_lines(workflow.read_text(encoding="utf-8"))
+    ]
+    assert not stored, (
+        f"a long-lived registry credential is referenced: {stored}. Publication here is "
+        "Trusted Publishing over OIDC; there is no upload token and none may be added."
+    )
+
+
+def test_the_release_workflow_announces_what_it_now_does() -> None:
+    """It called itself `release-candidate` while it could not publish. It can now."""
+    release = _release_workflow(Path(__file__).parents[1])
+    assert release.startswith("name: release\n"), (
+        "release.yml must announce itself as what it is; it holds publication authority"
     )
 
 

@@ -181,6 +181,48 @@ All notable changes will be documented here.
 - `tests/test_discovery_sample.py`, binding the record, the instrument and
   `research._HEADER` to each other, and asserting the instrument carries no
   ratings and is refused by `load_ratings` until a rater fills it.
+- **A publication half for `release.yml`, which had none.** The workflow built,
+  attested and signed a candidate and then stopped; there was no way to get that
+  candidate to a GitHub release or to PyPI, and no version of this package has
+  ever been published. It now carries a checkout-free `github-release` job and a
+  `pypi-publish` job that uploads over Trusted Publishing, plus a
+  `verify-published` job that installs what PyPI actually serves and invokes it,
+  so an upload that succeeds but cannot be installed fails the run rather than
+  sitting green. Neither publishing job checks out or executes repository code,
+  neither rebuilds, and `pypi-publish` re-checks the distribution digests against
+  the manifest the build job attested before uploading — a second build's output
+  would not be covered by that attestation. The PyPI upload has no stored
+  credential and none may be added.
+- Two release-time preconditions that used to be discovered late: the tag and
+  `pyproject.toml` versions must agree (this already existed) and `CHANGELOG.md`
+  must carry a section for the release, checked before anything is built rather
+  than when the notes are extracted from artifacts already signed.
+
+### Changed
+
+- **The publication ban in `tests/test_supply_chain.py` is now a confinement
+  rather than an absence.** It asserted that no workflow in this repository held
+  any publication capability, which was true and deliberate and is what WVR-009
+  waived. With a publish path it would have had to be deleted; instead it is
+  scoped. Every workflow except `release.yml` is still forbidden to publish
+  anything; inside `release.yml` only `github-release` and `pypi-publish` may,
+  the workflow-level permissions may not grant one, the two jobs may not check
+  out or rebuild, and the PyPI upload must declare `id-token: write` and the
+  `pypi` environment with no long-lived credential referenced anywhere. Each
+  clause was checked against a mutation that violates it, with the mutation
+  asserted present in the file before the run.
+- WVR-009 retired on its own stated trigger — "the control becomes implementable
+  in the same change that adds it" — leaving `waivers.yml` with no entries. The
+  registry test could not accept that state when this branch was written, and
+  the fix for it landed separately, so `waivers.yml` now simply declares itself
+  empty (`waivers: []`) against a gate that already treats zero waivers as a
+  legitimate terminal state.
+- `docs/RELEASE.md` corrected on two facts it had wrong: `v0.1.0` has been cut,
+  and it is an annotated SSH-signed tag that GitHub itself reports as
+  `"verified": true`, so the release-signing key is already registered under the
+  maintainer's account. The document said neither had happened. What genuinely
+  remains before a first publication is listed there, and every item needs a
+  person rather than a commit.
 
 ## [0.1.0] - 2026-09-04
 
