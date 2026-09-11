@@ -31,6 +31,12 @@ from obligation_receipts.receipt import ReceiptError, build_receipt, verify_rece
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 
+#: The example's inputs -- manifest, contract source and evidence -- frozen at
+#: the last commit before composition landed. Every digest literal in this file
+#: and in `tests/test_receipt.py` is reproduced from these bytes, so the example
+#: can gain obligations without any of those literals having to move.
+_FROZEN = _FIXTURES / "frozen-example"
+
 #: What `examples/accessibility-acceptance/obligations.toml` normalized to
 #: before any obligation declared a span. A manifest that declares none must
 #: still produce exactly this, because `source_span` is emitted into the
@@ -47,9 +53,23 @@ def _replace(path: Path, old: str, new: str) -> None:
 
 
 def _span_free(copied_example: Path) -> Path:
-    """The example as it was authored before spans, over the same source file."""
+    """The example as it was authored before spans, over the source it was written against.
+
+    The source comes from `tests/fixtures/frozen-example/`, not from the live
+    example, because `_PRE_SPANS_MANIFEST_SHA256` covers `contract.source_sha256`
+    and therefore every byte of the contract source. While the two were the same
+    file, appending a clause to the example -- which #64 did, to give the
+    vocabulary's composing operators a clause that needs them -- moved a literal
+    whose own docstring says moving it means every v0.1 manifest has been
+    invalidated. Freezing the input is what makes that literal a statement about
+    the schema rather than about whatever the example happens to contain today.
+    """
     manifest_path = copied_example / "obligations.toml"
     shutil.copyfile(_FIXTURES / "manifest-without-source-spans.toml", manifest_path)
+    shutil.copyfile(
+        _FROZEN / "source" / "section-508-acceptance.txt",
+        copied_example / "source" / "section-508-acceptance.txt",
+    )
     return manifest_path
 
 
@@ -58,7 +78,7 @@ def test_every_example_obligation_quotes_bytes_that_are_really_in_the_source(
 ) -> None:
     manifest = load_manifest(example_manifest)
     source = (example_manifest.parent / manifest.contract.source_path).read_bytes()
-    assert manifest.source_spans_declared == 4
+    assert manifest.source_spans_declared == 5
     for obligation in manifest.obligations:
         span = obligation.source_span
         assert span is not None, obligation.obligation_id
@@ -130,10 +150,15 @@ def test_a_line_break_flattened_to_a_space_is_still_a_different_quotation(
 def test_a_span_running_past_the_end_of_the_source_is_refused_before_anything_is_evaluated(
     copied_example: Path,
 ) -> None:
+    # Derived from the source rather than typed: a literal offset chosen to sit
+    # just past the end stops being past the end the moment a clause is appended,
+    # and the test then passes for no reason. This one starts inside the document
+    # and runs off it whatever the document's length is.
+    source_length = len((copied_example / "source" / "section-508-acceptance.txt").read_bytes())
     _replace(
         copied_example / "obligations.toml",
         "offset = 412, length = 32",
-        "offset = 440, length = 32",
+        f"offset = {source_length - 8}, length = 32",
     )
     with pytest.raises(ManifestError, match="runs past the end of the contract source"):
         load_manifest(copied_example / "obligations.toml")
@@ -283,6 +308,11 @@ def test_a_receipt_carries_the_span_so_replay_can_recheck_it(example_manifest: P
             "offset": 412,
             "sha256": "d7f9f8acb55a600dea17b14206cb7bce1f46b38384251fcc0f6a6682bbfa4b9b",
         },
+        {
+            "length": 96,
+            "offset": 451,
+            "sha256": "57d3227b59aa603a31d01413eb103b5a9b8f0fa80f32cb8393809325a814678a",
+        },
     ]
     assert verify_receipt(receipt) == receipt["payload_sha256"]
 
@@ -402,7 +432,7 @@ def test_validate_reports_the_declared_span_count_including_zero(
 ) -> None:
     """Zero is reported, not inferred from the absence of an error."""
     assert main(["validate", str(copied_example / "obligations.toml")]) == 0
-    assert json.loads(capsys.readouterr().out)["source_spans_declared"] == 4
+    assert json.loads(capsys.readouterr().out)["source_spans_declared"] == 5
     assert main(["validate", str(_span_free(copied_example))]) == 0
     assert json.loads(capsys.readouterr().out)["source_spans_declared"] == 0
 
@@ -445,7 +475,7 @@ def test_verify_reports_null_when_no_manifest_was_supplied_to_check_spans_agains
         )
         == 0
     )
-    assert json.loads(capsys.readouterr().out)["source_spans_verified"] == 4
+    assert json.loads(capsys.readouterr().out)["source_spans_verified"] == 5
 
 
 def test_editing_the_source_after_a_receipt_was_issued_is_caught_at_replay(

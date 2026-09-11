@@ -1,0 +1,17 @@
+# Byte-exact trees: nothing here may be line-ending normalized on the way into
+# or out of the index.
+#
+# Every file under these paths is hashed by the tool and pinned by a digest
+# literal in the test suite -- a contract source bound by `contract.source_sha256`
+# and quoted byte-for-byte by `source_span`, an evidence artifact whose sha256
+# reaches a receipt, or a frozen copy of both that reproduces a receipt digest
+# issued by an earlier version.
+#
+# Measured in a sibling repository on 2026-09-09: with `core.autocrlf=input` and
+# no `.gitattributes`, `git add` wrote a blob with the carriage returns stripped
+# while the worktree file still hashed to the recorded digest. The gate was green
+# locally and would have failed on every fresh clone, on a byte no tool touched.
+# None of these files carries a CR today; the point is that a contributor with a
+# different `core.autocrlf` cannot introduce or remove one silently.
+/examples/** -text
+/tests/fixtures/** -text

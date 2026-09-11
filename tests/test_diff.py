@@ -125,7 +125,7 @@ def test_identical_receipts_yield_an_empty_change_list() -> None:
     assert counts[EVIDENCE_CHANGED] == 0
     assert counts[ADDED] == 0
     assert counts[REMOVED] == 0
-    assert counts[UNCHANGED] == 4
+    assert counts[UNCHANGED] == 5
     assert _obj(payload["overall_status_transition"])["changed"] is False
     assert payload["manifest_changed"] is False
     assert payload["source_changed"] is False

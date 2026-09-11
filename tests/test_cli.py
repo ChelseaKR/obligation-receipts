@@ -246,7 +246,7 @@ def test_evidence_plan_generation_and_verification_cli(
     )
     generated = _last_stdout_json(capsys)
     assert generated["status"] == "plan_generated"
-    assert generated["obligation_count"] == 4
+    assert generated["obligation_count"] == 5
     assert "SENSITIVE_OUTPUT_PATH" not in json.dumps(generated)
 
     assert main(["verify-evidence-plan", str(plan)]) == 0

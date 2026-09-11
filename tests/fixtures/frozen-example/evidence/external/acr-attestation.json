@@ -2,7 +2,7 @@
   "schema_version": "obligation-receipts/attestation/v0.1",
   "contract_id": "synthetic-accessibility-acceptance",
   "contract_version": "1.0",
-  "manifest_sha256": "b6a4e14a3a4f46d12ceead157f8766ffceed215cf5d9cc4cd2448e24e68e01c9",
+  "manifest_sha256": "7ba75a4912881b2a8a8aed0825640df50cefc28270b1072c9a2a244b141e2ac8",
   "obligation_id": "a3-external-acr",
   "evidence_id": "a3-vendor-attestation",
   "status": "pass",

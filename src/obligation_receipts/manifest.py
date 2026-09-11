@@ -16,8 +16,13 @@ from obligation_receipts.canonical import (
 )
 from obligation_receipts.models import (
     ASSERTION_OPERATORS,
+    COMPOSITION_OPERATORS,
     JSON_TYPE_NAMES,
     LENGTH_COMPARISONS,
+    MAX_ASSERTION_DEPTH,
+    MIN_COMPOSITION_BRANCHES,
+    OPERATORS_WITHOUT_EXPECTED,
+    Assertion,
     Classification,
     Contract,
     Criticality,
@@ -62,7 +67,8 @@ _OBLIGATION_KEYS = {
     "evidence",
     "source_span",
 }
-_EVIDENCE_KEYS = {"id", "kind", "path", "pointer", "operator", "expected"}
+_EVIDENCE_KEYS = {"id", "kind", "path", "pointer", "operator", "expected", "branches"}
+_ASSERTION_KEYS = {"pointer", "operator", "expected", "branches"}
 _SPAN_KEYS = {"offset", "length", "sha256"}
 
 
@@ -163,6 +169,89 @@ def _evidence_path(value: Mapping[str, object], context: str) -> str:
     return path
 
 
+def _assertion_pointer(value: Mapping[str, object], context: str) -> str:
+    # A malformed pointer is an authoring defect in the approved manifest, not
+    # evidence content. Catching it here, where all three commands load, keeps
+    # it an input error instead of letting the evaluator turn it into a
+    # deterministic observed `fail`. The empty pointer is well formed and
+    # addresses the whole document, which is how a composition declares
+    # document-absolute branches.
+    pointer = value.get("pointer")
+    if not isinstance(pointer, str) or not is_well_formed(pointer):
+        raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
+    return pointer
+
+
+def _assertion_operator(value: Mapping[str, object], context: str) -> str:
+    operator = value.get("operator")
+    if not isinstance(operator, str) or operator not in ASSERTION_OPERATORS:
+        raise ManifestError(f"{context}.operator must be one of {sorted(ASSERTION_OPERATORS)}")
+    return operator
+
+
+def _assertion_expected(
+    value: Mapping[str, object], operator: str, context: str
+) -> JsonValue | None:
+    declared = "expected" in value
+    if operator in OPERATORS_WITHOUT_EXPECTED:
+        if declared:
+            raise ManifestError(f"{context}.expected is not allowed for operator {operator}")
+        return None
+    if not declared:
+        raise ManifestError(f"{context}.expected is required for operator {operator}")
+    try:
+        expected = validate_json_value(value["expected"])
+    except StrictJsonError as exc:
+        raise ManifestError(f"{context}.expected is not bounded JSON: {exc}") from exc
+    _check_expected_shape(operator, expected, context)
+    return expected
+
+
+def _parse_branches(
+    value: Mapping[str, object], operator: str, context: str, depth: int
+) -> tuple[Assertion, ...] | None:
+    """The branches of a composing operator, refused for every other one.
+
+    The depth cap is checked *before* the branches are read, so a manifest that
+    nests too deeply is refused by the level that would have created the
+    over-deep node rather than by the node itself: the message can then name
+    the composition the author has to unnest.
+    """
+    raw = value.get("branches")
+    if operator not in COMPOSITION_OPERATORS:
+        if raw is not None:
+            raise ManifestError(f"{context}.branches is not allowed for operator {operator}")
+        return None
+    if depth >= MAX_ASSERTION_DEPTH:
+        raise ManifestError(
+            f"{context} composes at assertion level {depth}, and the closed format allows "
+            f"{MAX_ASSERTION_DEPTH} levels; its branches would be level {depth + 1}"
+        )
+    if not isinstance(raw, list) or len(raw) < MIN_COMPOSITION_BRANCHES:
+        raise ManifestError(
+            f"{context}.branches must be an array of at least {MIN_COMPOSITION_BRANCHES} "
+            f"assertions for operator {operator}. A composition of one is the assertion "
+            "itself, and it would answer an unresolvable pointer differently from the "
+            "same assertion written flat."
+        )
+    return tuple(
+        _parse_assertion(item, f"{context}.branches[{index}]", depth + 1)
+        for index, item in enumerate(raw)
+    )
+
+
+def _parse_assertion(raw: object, context: str, depth: int) -> Assertion:
+    value = _mapping(raw, context)
+    _exact_keys(value, _ASSERTION_KEYS, context)
+    operator = _assertion_operator(value, context)
+    return Assertion(
+        pointer=_assertion_pointer(value, context),
+        operator=operator,
+        expected=_assertion_expected(value, operator, context),
+        branches=_parse_branches(value, operator, context, depth),
+    )
+
+
 def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
     value = _mapping(raw, context)
     _exact_keys(value, _EVIDENCE_KEYS, context)
@@ -170,37 +259,27 @@ def _parse_evidence(raw: object, context: str) -> EvidenceSpec:
         kind = EvidenceKind(_required_string(value, "kind", context))
     except ValueError as exc:
         raise ManifestError(f"{context}.kind is not supported") from exc
-    pointer = value.get("pointer")
-    operator = value.get("operator")
-    expected = value.get("expected")
+    pointer: str | None = None
+    operator: str | None = None
+    expected: JsonValue | None = None
+    branches: tuple[Assertion, ...] | None = None
     if kind is EvidenceKind.JSON_ASSERTION:
-        if not isinstance(pointer, str) or not is_well_formed(pointer):
-            # A malformed pointer is an authoring defect in the approved
-            # manifest, not evidence content. Catching it here, where all three
-            # commands load, keeps it an input error instead of letting the
-            # evaluator turn it into a deterministic observed `fail`.
-            raise ManifestError(f"{context}.pointer must be an RFC 6901 JSON pointer")
-        if not isinstance(operator, str) or operator not in ASSERTION_OPERATORS:
-            raise ManifestError(f"{context}.operator must be one of {sorted(ASSERTION_OPERATORS)}")
-        if operator != "exists" and "expected" not in value:
-            raise ManifestError(f"{context}.expected is required for operator {operator}")
-        if operator == "exists" and "expected" in value:
-            raise ManifestError(f"{context}.expected is not allowed for operator exists")
-        if "expected" in value:
-            try:
-                expected = validate_json_value(expected)
-            except StrictJsonError as exc:
-                raise ManifestError(f"{context}.expected is not bounded JSON: {exc}") from exc
-            _check_expected_shape(operator, expected, context)
-    elif any(key in value for key in ("pointer", "operator", "expected")):
+        pointer = _assertion_pointer(value, context)
+        operator = _assertion_operator(value, context)
+        expected = _assertion_expected(value, operator, context)
+        # The evidence item carries the top-level assertion inline, so it is
+        # level 1 and its branches are level 2.
+        branches = _parse_branches(value, operator, context, 1)
+    elif any(key in value for key in ("pointer", "operator", "expected", "branches")):
         raise ManifestError(f"{context} attestation evidence cannot define an assertion")
     return EvidenceSpec(
         evidence_id=_identifier(value, "id", context),
         kind=kind,
         path=_evidence_path(value, context),
-        pointer=cast(str | None, pointer),
-        operator=cast(str | None, operator),
-        expected=cast(JsonValue | None, expected),
+        pointer=pointer,
+        operator=operator,
+        expected=expected,
+        branches=branches,
     )
 
 
