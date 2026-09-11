@@ -53,16 +53,22 @@ def _replace(path: Path, old: str, new: str) -> None:
 
 
 def _span_free(copied_example: Path) -> Path:
-    """The example as it was authored before spans, over the source it was written against.
+    """The example as it was authored before spans, over the inputs it was written against.
 
-    The source comes from `tests/fixtures/frozen-example/`, not from the live
-    example, because `_PRE_SPANS_MANIFEST_SHA256` covers `contract.source_sha256`
-    and therefore every byte of the contract source. While the two were the same
-    file, appending a clause to the example -- which #64 did, to give the
-    vocabulary's composing operators a clause that needs them -- moved a literal
-    whose own docstring says moving it means every v0.1 manifest has been
-    invalidated. Freezing the input is what makes that literal a statement about
-    the schema rather than about whatever the example happens to contain today.
+    The source **and the evidence** come from `tests/fixtures/frozen-example/`,
+    not from the live example. `_PRE_SPANS_MANIFEST_SHA256` covers
+    `contract.source_sha256` and so every byte of the contract source, and
+    `_PRE_SPANS_PAYLOAD_SHA256` covers every evidence digest. While either was
+    read from the live example, improving the example -- which #64 did, by
+    appending the clause its composing operators need -- moved a literal whose
+    own docstring says moving it means every v0.1 manifest has been invalidated.
+
+    The evidence was the half missed at first. A negative control that reversed
+    only a *composing* manifest's branch order, which no pre-spans input can
+    see, still reddened the pre-spans receipt test: its setup looked up the live
+    example's digest to rebind the attestations. Reading everything from the
+    frozen copy is what makes these literals statements about the schema rather
+    than about whatever the example contains today.
     """
     manifest_path = copied_example / "obligations.toml"
     shutil.copyfile(_FIXTURES / "manifest-without-source-spans.toml", manifest_path)
@@ -70,6 +76,7 @@ def _span_free(copied_example: Path) -> Path:
         _FROZEN / "source" / "section-508-acceptance.txt",
         copied_example / "source" / "section-508-acceptance.txt",
     )
+    shutil.copytree(_FROZEN / "evidence", copied_example / "evidence", dirs_exist_ok=True)
     return manifest_path
 
 
@@ -246,17 +253,17 @@ def test_a_receipt_for_a_span_free_manifest_is_byte_identical_to_the_pre_spans_r
     """Not "carries no span member" -- the same bytes, pinned to a literal.
 
     The attestations are rebound to the pre-spans manifest digest here because
-    the committed ones now bind to the example's new digest. Both halves of the
-    old input are therefore present, and the receipt they produce must be the
-    one the old code produced.
+    the frozen ones bind the frozen example's digest, which declares spans. Both
+    halves of the old input are therefore present -- and both come from the
+    frozen copy, so nothing done to the live example can reach this receipt.
     """
-    current_digest = load_manifest(copied_example / "obligations.toml").manifest_sha256
     manifest_path = _span_free(copied_example)
+    frozen_digest = load_manifest(_FROZEN / "obligations.toml").manifest_sha256
     for attestation in (
         copied_example / "evidence" / "manual" / "keyboard-review.json",
         copied_example / "evidence" / "external" / "acr-attestation.json",
     ):
-        _replace(attestation, current_digest, _PRE_SPANS_MANIFEST_SHA256)
+        _replace(attestation, frozen_digest, _PRE_SPANS_MANIFEST_SHA256)
     manifest = load_manifest(manifest_path)
     assert manifest.manifest_sha256 == _PRE_SPANS_MANIFEST_SHA256
     receipt = build_receipt(
