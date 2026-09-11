@@ -128,8 +128,52 @@ All notable changes will be documented here.
   because JSON has one number type and a manifest that could say `integer` would make
   `1.0` a `fail` against `1` for a difference no JSON parser preserves.
 
-  Composition (`all_of`, `any_of`) is not included: it needs a nested assertion shape the
-  plan, the single-evidence check and the receipt do not carry. #64 stays open for it.
+  Composition (`all_of`, `any_of`) was not included in that pass: it needs a nested
+  assertion shape the plan, the single-evidence check and the receipt do not carry. It
+  landed separately, below, and closes #64.
+
+- **`all_of` and `any_of` close the vocabulary's composing half (#64).** One clause often
+  carries two thresholds -- "zero critical violations and no more than two serious" --
+  and until now that was two obligations, which says the contract has two. A composing
+  evidence item declares a base `pointer`, `operator = "all_of"` or `"any_of"`, and an
+  ordered `branches` array of further assertions, each resolved **inside** the value its
+  parent resolved. A base of `""` addresses the whole document, so document-absolute
+  branches and scoped branches come out of one rule. The example's manifest gains such a
+  clause, `A-5`, and it evaluates and replays.
+
+  **`missing` is not `false`, and that is the whole design.** A branch whose pointer does
+  not resolve is `missing` for every operator except `exists`, and the two operators
+  combine as Kleene three-valued logic: `all_of` resolves `fail` over `missing` over
+  `pass` -- which is `_combine_evidence`'s own order, because `all_of` is the
+  within-artifact form of the `all_required` rule the plan already declares -- and
+  `any_of` is its dual. So `any_of` over two absent members is `missing` and exit 3, not
+  `fail` and exit 1: a supplier is never told their evidence failed a comparison nobody
+  made. A **flat** assertion over an absent pointer is still `fail`, unchanged since #24;
+  the two rules cannot disagree about one input because a composition of one branch --
+  the only assertion expressible both ways -- does not load.
+
+  Closed and non-executable throughout. Three assertion levels and no more, at least two
+  branches, no `expected` beside `branches`, no `branches` on an operator that does not
+  compose, and every branch held to every rule a top-level assertion is: pointer syntax,
+  operator name, `expected` shape. Each of those is a `ManifestError` when the manifest
+  loads, and the evidence plan's own validator enforces the same rules on a document that
+  arrives from outside, because `verify-evidence-plan` is run without `--manifest` more
+  often than with it.
+
+  **No committed byte moved for a manifest that composes nothing.** `branches` is emitted
+  into the normalized manifest and into the plan only when present, exactly as
+  `source_span` is, so `manifest_sha256` and every plan and receipt digest for an
+  existing manifest are unchanged -- proven by reproducing the two receipt payload
+  digests this repository pins from a frozen copy of the pre-composition example, and by
+  the pre-spans compatibility digest, which also still holds. The evidence-plan payload
+  now has pinned digests of its own in both privacy profiles; it had none, so nothing
+  before this could see a change to the bytes a counterparty verifies. A reader built
+  before composition refuses a composing plan rather than ignoring `branches`, which is
+  the direction this has to fail in.
+
+  `docs/SINGLE-EVIDENCE-CHECK.md` needed no new field and says so: a check of a composing
+  evidence item publishes the same id, kind, status and artifact digest as a check of an
+  `eq`, and none of the branches.
 
 
 - **An obligation can now be bound to the span of the approved source it quotes,

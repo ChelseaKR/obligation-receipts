@@ -89,8 +89,8 @@ def test_freezing_then_evaluating_unchanged_evidence_records_the_lock_digest(
         == OK
     )
     summary = json.loads(capsys.readouterr().out)
-    assert summary["artifacts"] == 3
-    assert summary["present"] == 3
+    assert summary["artifacts"] == 4
+    assert summary["present"] == 4
 
     assert _cli_evaluate(copied_example, receipt_path, lock_path) == OK
     receipt = load_receipt(receipt_path)

@@ -55,6 +55,7 @@ def test_example_reports_explicit_unverifiable_finding(example_manifest: Path) -
         ResultStatus.PASS,
         ResultStatus.PASS,
         ResultStatus.UNVERIFIABLE,
+        ResultStatus.PASS,
     ]
     payload = evaluation.payload()
     counts = payload["obligation_counts"]

@@ -5,7 +5,7 @@ version = "1.0"
 authority = "Synthetic public-sector software acceptance exercise"
 effective_date = "2026-07-22"
 source_path = "source/section-508-acceptance.txt"
-source_sha256 = "49524b76c8f2724154c17a3f0745d95815f9f6351711515bb25e044d20e53db0"
+source_sha256 = "b94a87890d23aaedc93c143a00d5fc4f96f7ed09a9f839bb4aa8d9c841562bed"
 
 [[obligations]]
 id = "a1-zero-critical-violations"
@@ -67,29 +67,3 @@ classification = "unverifiable"
 criticality = "should"
 owner = "Product owner"
 reason = "No population, task, method, threshold, or accountable reviewer is defined."
-
-[[obligations]]
-id = "a5-severity-thresholds"
-clause_ref = "A-5"
-text = """
-The acceptance run must report zero critical violations and no more
-than two serious violations."""
-source_span = { offset = 451, length = 96, sha256 = "57d3227b59aa603a31d01413eb103b5a9b8f0fa80f32cb8393809325a814678a" }
-classification = "automated"
-criticality = "must"
-owner = "Agency acceptance lead"
-
-# Two thresholds in one clause, which is why the clause needs `all_of`: split
-# into two obligations it would say the contract carries two, and written as a
-# single `eq` it would drop half of what was agreed. The base pointer is
-# `/summary` and each branch resolves inside it.
-[[obligations.evidence]]
-id = "a5-axe-severity-thresholds"
-kind = "json_assertion"
-path = "automated/axe-summary.json"
-pointer = "/summary"
-operator = "all_of"
-branches = [
-  { pointer = "/critical_violations", operator = "eq", expected = 0 },
-  { pointer = "/serious_violations", operator = "lte", expected = 2 },
-]

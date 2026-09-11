@@ -17,8 +17,11 @@ def _replace(path: Path, old: str, new: str) -> None:
 def test_loads_and_normalizes_source_bound_manifest(example_manifest: Path) -> None:
     manifest = load_manifest(example_manifest)
     assert manifest.contract.contract_id == "synthetic-accessibility-acceptance"
-    assert len(manifest.obligations) == 4
-    assert manifest.obligations[-1].classification is Classification.UNVERIFIABLE
+    assert len(manifest.obligations) == 5
+    unverifiable = [
+        item for item in manifest.obligations if item.classification is Classification.UNVERIFIABLE
+    ]
+    assert len(unverifiable) == 1
     assert manifest.normalized_dict()["schema_version"] == "obligation-receipts/manifest/v0.1"
 
 
@@ -58,7 +61,7 @@ def test_rejects_nonportable_source_path_before_source_access(
         ),
         ('id = "synthetic-accessibility-acceptance"', 'id = "INVALID ID"', "identifier"),
         (
-            'source_sha256 = "b94a87890d23aaedc93c143a00d5fc4f96f7ed09a9f839bb4aa8d9c841562bed"',
+            'source_sha256 = "49524b76c8f2724154c17a3f0745d95815f9f6351711515bb25e044d20e53db0"',
             'source_sha256 = "bad"',
             "SHA-256",
         ),

@@ -192,7 +192,11 @@ expected = 2
     assert _counts(payload)["multiply_referenced"] == 1
     shared = _rows(payload["multiply_referenced"])
     assert shared[0]["path"] == "automated/axe-summary.json"
-    assert shared[0]["evidence_ids"] == ["a1-axe-summary", "a5-axe-summary-again"]
+    assert shared[0]["evidence_ids"] == [
+        "a1-axe-summary",
+        "a5-axe-severity-thresholds",
+        "a5-axe-summary-again",
+    ]
     # Declared totals count paths, not references, so the file is one row.
     assert _counts(payload)["declared_total"] == 3
 

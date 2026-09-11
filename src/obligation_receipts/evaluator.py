@@ -14,6 +14,7 @@ from obligation_receipts.canonical import (
 )
 from obligation_receipts.manifest import ManifestError
 from obligation_receipts.models import (
+    Assertion,
     Classification,
     Criticality,
     Evaluation,
@@ -69,12 +70,39 @@ _SET_MEMBERSHIP = frozenset({"in", "not_in"})
 #: than from an ordering over it.
 _SHAPE = frozenset({"between", "length", "type"})
 
+#: How the branches of a composition combine, as an ordered precedence: the
+#: first status any branch holds is the composition's answer.
+#:
+#: A dict keyed by operator rather than a conditional, for the reason
+#: `_ORDERING` is one: a third composing operator added to the vocabulary and
+#: not to this table is a `KeyError` in a test run rather than a silent
+#: inheritance of `any_of`'s rule, and `IMPLEMENTED_OPERATORS` is derived from
+#: the keys, so it cannot be added to the vocabulary without a rule at all.
+#:
+#: `all_of`'s order is `_combine_evidence`'s order restricted to the three
+#: statuses a `json_assertion` branch can hold, and that is not a coincidence:
+#: `all_of` is the within-artifact form of the `all_required` rule the evidence
+#: plan already declares over an obligation's evidence items, so the two must
+#: agree about a fail beside a missing. `any_of`'s is its dual, which makes the
+#: pair Kleene three-valued logic with `missing` as the unknown.
+#:
+#: The consequence worth stating: `any_of` over branches that were all
+#: unmeasurable is `missing`, never `fail`. Folding an unmeasured branch into
+#: `false` is how a composition would report an absence as an observed failure
+#: against a supplier, or -- with the sense reversed -- absorb one into a pass.
+_COMBINATION: dict[str, tuple[ResultStatus, ...]] = {
+    "all_of": (ResultStatus.FAIL, ResultStatus.MISSING, ResultStatus.PASS),
+    "any_of": (ResultStatus.PASS, ResultStatus.MISSING, ResultStatus.FAIL),
+}
+
 #: Every operator this build can answer. `exists` is included because
 #: `_evaluate_assertion` answers it from the pointer's found flag, one level up
-#: -- it is implemented, just not here.
+#: -- it is implemented, just not here. The composing operators are included
+#: because `_combine_branches` answers them from their branches' three-valued
+#: statuses, where `_compare` returns a boolean.
 #:
-#: Derived from the four sets that dispatch, never typed out again, so an
-#: operator can only appear here by having somewhere to go.
+#: Derived from the sets that dispatch, never typed out again, so an operator
+#: can only appear here by having somewhere to go.
 #:
 #: `tests/test_misuse_boundaries.py` asserts this equals
 #: `models.ASSERTION_OPERATORS`, the vocabulary the manifest loader and the
@@ -82,7 +110,7 @@ _SHAPE = frozenset({"between", "length", "type"})
 #: `fail` in a receipt, against a supplier, for an assertion that was never
 #: evaluated.
 IMPLEMENTED_OPERATORS = frozenset(
-    _EQUALITY | set(_ORDERING) | _SET_MEMBERSHIP | _SHAPE | {"exists"}
+    _EQUALITY | set(_ORDERING) | _SET_MEMBERSHIP | _SHAPE | set(_COMBINATION) | {"exists"}
 )
 
 
@@ -130,8 +158,20 @@ class UnsupportedOperatorError(ManifestError):
     """
 
 
+#: Operators that are implemented, and not by this comparator.
+#:
+#: `exists` is answered from the pointer's found flag and a composition from its
+#: branches' statuses, both one level up, because both answers need something a
+#: boolean cannot carry: `exists` needs to tell an absent member from one whose
+#: value is JSON `null`, and a composition needs a third value for "not
+#: measured". Reaching `_compare` with one of these is a wiring defect, so it
+#: raises rather than falling through to a comparison that would answer `False`
+#: against an `expected` that was never declared.
+_ANSWERED_ELSEWHERE = frozenset({"exists"}) | set(_COMBINATION)
+
+
 def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None) -> bool:
-    """Compare a resolved value. `exists` never reaches here.
+    """Compare a resolved value. `exists` and the compositions never reach here.
 
     `_evaluate_assertion` answers `exists` from the pointer's found flag, one
     level up. This function once carried its own `exists` branch that answered
@@ -145,9 +185,9 @@ def _compare(actual: JsonValue | None, operator: str, expected: JsonValue | None
     reached only for an operator this module implements. An operator it does
     not implement raises.
     """
-    if operator not in IMPLEMENTED_OPERATORS or operator == "exists":
+    if operator not in IMPLEMENTED_OPERATORS or operator in _ANSWERED_ELSEWHERE:
         raise UnsupportedOperatorError(
-            f"operator {operator!r} is in the accepted vocabulary and has no implementation; "
+            f"operator {operator!r} has no implementation in this comparator; "
             "no evaluation was made"
         )
     if operator in _SET_MEMBERSHIP or operator in _SHAPE:
@@ -217,6 +257,109 @@ def _compare_length(actual: JsonValue | None, expected: JsonValue | None) -> boo
     return _ORDERING[name](measured, wanted)
 
 
+def _combine_branches(operator: str, statuses: tuple[ResultStatus, ...]) -> ResultStatus:
+    """The composition's answer, as the first precedence entry any branch holds.
+
+    `statuses` is never empty: the manifest loader refuses a composition with
+    fewer than `MIN_COMPOSITION_BRANCHES` branches, so the generator always
+    finds a member and this cannot fall through to a default that would have to
+    invent one.
+    """
+    held = set(statuses)
+    return next(status for status in _COMBINATION[operator] if status in held)
+
+
+def _branch_statuses(
+    container: JsonValue | None,
+    container_found: bool,
+    branches: tuple[Assertion, ...],
+) -> tuple[ResultStatus, ...]:
+    """Every branch's status, in declaration order.
+
+    A composition whose own pointer does not resolve reports **every** branch as
+    `missing` rather than returning early. The combined answer is the same
+    either way, and the difference is the count in the detail line: "2 of 2
+    branches could not be measured" is true, and "0 of 2" -- what an early
+    return would leave -- would say the branches were fine.
+    """
+    if not container_found:
+        return tuple(ResultStatus.MISSING for _ in branches)
+    return tuple(_assertion_status(container, branch) for branch in branches)
+
+
+def _assertion_status(container: JsonValue | None, node: Assertion) -> ResultStatus:
+    """One branch's three-valued status, resolved within its parent's value.
+
+    Bounded by `models.MAX_ASSERTION_DEPTH`, which the manifest loader enforces,
+    so this recursion is three frames deep at most.
+
+    **A pointer that does not resolve is `missing` here and `fail` in the flat
+    top-level assertion**, and that difference is deliberate rather than an
+    oversight. A flat assertion is the whole answer, and the pre-existing
+    contract -- pinned by
+    `tests/test_evaluator.py::test_pointer_descending_through_a_scalar_fails_without_raising`
+    since #24 -- is that the document not saying the thing is an observed
+    failure. A branch is folded together with others, and folding "not
+    measured" into "false" is what would let `any_of` publish a verdict nobody
+    measured. `MIN_COMPOSITION_BRANCHES` keeps the two rules from ever
+    disagreeing about the same input: a one-branch composition, the only way to
+    write one assertion in both forms, does not load.
+    """
+    found, actual = resolve(container, node.pointer)
+    if node.branches is not None:
+        return _combine_branches(node.operator, _branch_statuses(actual, found, node.branches))
+    if node.operator == "exists":
+        return ResultStatus.PASS if found else ResultStatus.FAIL
+    if not found:
+        return ResultStatus.MISSING
+    return (
+        ResultStatus.PASS if _compare(actual, node.operator, node.expected) else ResultStatus.FAIL
+    )
+
+
+def _composition_result(
+    spec: EvidenceSpec,
+    pointer: str,
+    operator: str,
+    branches: tuple[Assertion, ...],
+    document: JsonValue,
+    artifact_sha256: str,
+) -> EvidenceResult:
+    """Evaluate a composing evidence item and describe what it measured.
+
+    The pointer and operator arrive as the non-optional strings the caller has
+    already established them to be, rather than being re-read from `spec` and
+    re-widened to `str | None`.
+
+    The detail carries a denominator because the three statuses are otherwise
+    indistinguishable in a receipt: `missing` on a composition means at least
+    one branch could not be measured and no branch settled the question, and
+    "how many" is the difference between an artifact that has drifted a little
+    and one that does not carry the shape at all. It names no branch pointer and
+    no filesystem fact, so it stays replayable across machines like every other
+    detail string here.
+    """
+    found, actual = resolve(document, pointer)
+    statuses = _branch_statuses(actual, found, branches)
+    status = _combine_branches(operator, statuses)
+    if status is ResultStatus.MISSING:
+        unmeasured = sum(1 for item in statuses if item is ResultStatus.MISSING)
+        detail = (
+            f"assertion {pointer} {operator} was not evaluable: "
+            f"{unmeasured} of {len(statuses)} branches could not be measured"
+        )
+    else:
+        outcome = "passed" if status is ResultStatus.PASS else "did not pass"
+        detail = f"assertion {pointer} {operator} over {len(statuses)} branches {outcome}"
+    return EvidenceResult(
+        evidence_id=spec.evidence_id,
+        kind=spec.kind,
+        status=status,
+        artifact_sha256=artifact_sha256,
+        detail=detail,
+    )
+
+
 def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResult:
     try:
         data, artifact_sha256 = _read_json_artifact(evidence_root, spec.path)
@@ -249,6 +392,15 @@ def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResu
             status=ResultStatus.MISSING,
             artifact_sha256=artifact_sha256,
             detail="validated assertion is missing its pointer or operator",
+        )
+    if spec.branches is not None:
+        return _composition_result(
+            spec,
+            spec.pointer,
+            spec.operator,
+            spec.branches,
+            document,
+            artifact_sha256,
         )
     found, actual = resolve(document, spec.pointer)
     passed = (
