@@ -511,6 +511,12 @@ def test_attestation_evidence_still_cannot_declare_branches(copied_example: Path
         ),
         (
             "any_of",
+            '{ pointer = "/critical_violations", operator = "eq", expected = 7 }, '
+            '{ pointer = "/moderate_violations", operator = "eq", expected = 0 }',
+            ResultStatus.MISSING,
+        ),
+        (
+            "any_of",
             '{ pointer = "/moderate_violations", operator = "eq", expected = 7 }, '
             '{ pointer = "/minor_violations", operator = "eq", expected = 5 }',
             ResultStatus.MISSING,
@@ -522,10 +528,13 @@ def test_a_composition_evaluates_end_to_end_through_the_cli_path(
 ) -> None:
     """Through `load_manifest` and `evaluate_manifest`, not through the helpers.
 
-    The two `missing` rows are the ones worth reading. `/moderate_violations` is
-    not in the artifact; the flat form of that assertion would be a `fail`
+    The three `missing` rows are the ones worth reading. `/moderate_violations`
+    is not in the artifact; the flat form of that assertion would be a `fail`
     against the supplier, and inside a composition it is an admission that the
-    question was not answered.
+    question was not answered. The `any_of` over one `fail` and one `missing` is
+    the row a boolean fold gets wrong in the plausible direction -- it answers
+    `fail` -- and no end-to-end row covered it until the control that reversed
+    `any_of`'s precedence turned only the unit-level truth-table row red.
     """
     assert _first_status(copied_example, _composition(operator, branches)) is status
 
