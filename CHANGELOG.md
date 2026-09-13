@@ -31,6 +31,40 @@ All notable changes will be documented here.
 
 ### Fixed
 
+- **The required `secret-scan` check read 1 of `main`'s 57 commits.**
+  `gitleaks/gitleaks-action` picks its scan range from the event that started
+  the run: several commits pushed gives
+  `gitleaks detect --log-opts=--no-merges --first-parent BASE^..HEAD`, a single
+  commit pushed gives `--log-opts=-1` — exactly one commit — and a pull request
+  gives that pull request's own commits. Only `schedule` and
+  `workflow_dispatch` make it pass no range at all, and `ci.yml` has neither.
+  Every merge into `main` here is a squash merge, so every push to `main` is a
+  one-commit push. A credential added in one commit and deleted in the next was
+  therefore invisible to a merge-blocking check named `secret-scan`, for the
+  whole life of the repository.
+
+  `fetch-depth: 0` did not prevent it and could not. It decides how much
+  history `actions/checkout` puts on disk; what the scanner reads is decided by
+  how it is invoked. The line was already there, above an invocation that
+  declined to read what it had fetched — which is why the note beside
+  `timeout-minutes` saying the job "clones the full history before scanning it"
+  is corrected rather than kept.
+
+  The action is replaced by the pinned, checksum-verified 8.30.1 binary invoked
+  as `gitleaks git .` with no range argument, which walks every commit
+  reachable from HEAD identically on every event. The job id and its check
+  context are unchanged; `pull-requests: read` and the `GITHUB_TOKEN` the
+  action needed to list a pull request's commits are dropped with it.
+
+  Measured on a throwaway clone of this repository with its remote removed, at
+  `fe5a0aa` (tree `fc91ff6b`, 57 commits): a random real-shaped AWS key planted
+  in one commit (blob `cc6edda5`) and removed in the next — 2 commits touching
+  it, 0 occurrences in the working tree, tip tree identical to the baseline —
+  left `gitleaks git . --log-opts=-1` exiting 0 and `gitleaks git .` exiting 1.
+  `tests/test_secret_scan_reads_history.py` asserts the invocation, reading
+  `ci.yml` with comments stripped, because the comment explaining the fix has
+  to name both the action and the flag it forbids.
+
 - **`action.yml` was outside the pin-identity gate and outside the publication
   ban.** It is the file other repositories execute, and two of the three
   supply-chain gates could not see it. Both holes were measured on `origin/main`
