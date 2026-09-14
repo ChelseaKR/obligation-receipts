@@ -26,6 +26,7 @@ from obligation_receipts.models import (
     JsonValue,
     Manifest,
     Obligation,
+    SourceBinding,
     SourceSpan,
 )
 from obligation_receipts.paths import (
@@ -96,10 +97,15 @@ def _identifier(value: Mapping[str, object], key: str, context: str) -> str:
     return item
 
 
-def _parse_contract(
-    raw: object, manifest_dir: Path, *, read_source: bool
-) -> tuple[Contract, bytes]:
-    """Validate the contract block and bind it to its source.
+def _bind_source(
+    manifest_dir: Path,
+    source_path: str,
+    source_sha256: str,
+    *,
+    read_source: bool,
+    allow_absent_source: bool,
+) -> tuple[bytes | None, SourceBinding]:
+    """Bind the contract to its source document, or say why it could not be.
 
     ``read_source`` is set only when at least one obligation declares a
     ``source_span``, because that is the only case where the source's *content*
@@ -107,19 +113,23 @@ def _parse_contract(
     a 64 KiB chunk at a time by ``hash_bounded_file``, so a 16 MiB contract PDF
     never enters memory for a manifest that quotes nothing from it. The two
     paths compute the same digest over the same bytes; only the buffering
-    differs. Both raise through the one ``except`` below, so a source that
-    cannot be read safely is a ``ManifestError`` either way.
+    differs.
+
+    Only ABSENCE is downgradable, and only under the caller's explicit opt-in.
+    ``hash_bounded_file`` and ``read_bounded_file`` raise ``FileNotFoundError``
+    when the declared source is simply not on disk and ``BoundedPathError`` for
+    every other refusal -- a path that escapes its root, a non-regular file, a
+    source over the 16 MiB cap. Catching them separately is what keeps the
+    opt-in from widening into "ignore anything wrong with the source": a
+    traversal attempt is refused in both modes, with the same message, as is a
+    present source that hashes to something other than the approved digest.
+
+    The absent case returns ``None`` rather than ``b""``. An empty document and
+    a document that is not in hand are different facts, and ``_bind_source_spans``
+    has to tell them apart: against ``b""`` every declared span would fail as
+    running past the end of the source, which would report "not in hand" as
+    "the quotation is wrong".
     """
-    value = _mapping(raw, "contract")
-    _exact_keys(value, _CONTRACT_KEYS, "contract")
-    if set(value) != _CONTRACT_KEYS:
-        missing = sorted(_CONTRACT_KEYS - set(value))
-        raise ManifestError(f"contract is missing field(s): {', '.join(missing)}")
-    source_sha256 = _required_string(value, "source_sha256", "contract")
-    if not _SHA256_PATTERN.fullmatch(source_sha256):
-        raise ManifestError("contract.source_sha256 must be a lowercase SHA-256 digest")
-    source_path = _required_string(value, "source_path", "contract")
-    source_bytes = b""
     try:
         validate_portable_relative_path(source_path)
         if read_source:
@@ -130,18 +140,49 @@ def _parse_contract(
             )
             actual_hash = sha256_bytes(source_bytes)
         else:
+            source_bytes = b""
             _, actual_hash = hash_bounded_file(
                 manifest_dir,
                 source_path,
                 max_bytes=_MAX_SOURCE_BYTES,
             )
-    except (BoundedPathError, FileNotFoundError) as exc:
+    except FileNotFoundError as exc:
+        if not allow_absent_source:
+            raise ManifestError(f"contract source cannot be opened: {exc}") from exc
+        return None, SourceBinding.DECLARED_ONLY
+    except BoundedPathError as exc:
         raise ManifestError(f"contract source cannot be opened: {exc}") from exc
     if actual_hash != source_sha256:
         raise ManifestError(
             "contract source digest does not match the approved manifest; "
             f"expected {source_sha256}, got {actual_hash}"
         )
+    return source_bytes, SourceBinding.VERIFIED
+
+
+def _parse_contract(
+    raw: object,
+    manifest_dir: Path,
+    *,
+    read_source: bool,
+    allow_absent_source: bool,
+) -> tuple[Contract, bytes | None, SourceBinding]:
+    value = _mapping(raw, "contract")
+    _exact_keys(value, _CONTRACT_KEYS, "contract")
+    if set(value) != _CONTRACT_KEYS:
+        missing = sorted(_CONTRACT_KEYS - set(value))
+        raise ManifestError(f"contract is missing field(s): {', '.join(missing)}")
+    source_sha256 = _required_string(value, "source_sha256", "contract")
+    if not _SHA256_PATTERN.fullmatch(source_sha256):
+        raise ManifestError("contract.source_sha256 must be a lowercase SHA-256 digest")
+    source_path = _required_string(value, "source_path", "contract")
+    source_bytes, binding = _bind_source(
+        manifest_dir,
+        source_path,
+        source_sha256,
+        read_source=read_source,
+        allow_absent_source=allow_absent_source,
+    )
     contract = Contract(
         contract_id=_identifier(value, "id", "contract"),
         title=_required_string(value, "title", "contract"),
@@ -151,7 +192,7 @@ def _parse_contract(
         source_path=source_path,
         source_sha256=source_sha256,
     )
-    return contract, source_bytes
+    return contract, source_bytes, binding
 
 
 def _evidence_path(value: Mapping[str, object], context: str) -> str:
@@ -311,19 +352,40 @@ def _parse_source_span(value: Mapping[str, object], context: str) -> SourceSpan 
     return SourceSpan(offset=offset, length=length, sha256=digest)
 
 
-def _bind_source_spans(obligations: tuple[Obligation, ...], source_bytes: bytes) -> None:
+def _bind_source_spans(obligations: tuple[Obligation, ...], source_bytes: bytes | None) -> None:
     """Check every declared span against the source the manifest is bound to.
 
     Every failure here is a defect in the *approved manifest* -- a quotation
     that is not in the document it claims to come from -- so every one is a
     `ManifestError` raised before anything is evaluated, never an observed
     `fail` in a receipt. That is the same line `pointer.is_well_formed` draws.
+
+    `source_bytes` is `None` when the contract source was bound `declared_only`
+    under `--allow-absent-source`. The offset and length then have nothing to be
+    resolved against and are NOT checked -- but `span.sha256` and
+    `obligation.text` do not need the document to be compared to each other, and
+    a mismatch between them is the same manifest defect whether the source is in
+    hand or not. So that half still runs, and only the half that genuinely
+    requires the bytes is dropped. What must not follow is that the caller
+    reports these spans as *verified*: `verify` renders
+    `source_spans_verified` as `null` under a `declared_only` binding rather
+    than as a count of spans nothing checked against the approved document.
     """
     for index, obligation in enumerate(obligations):
         span = obligation.source_span
         if span is None:
             continue
         context = f"obligations[{index}] ({obligation.obligation_id})"
+        if source_bytes is None:
+            text_digest = sha256_bytes(obligation.text.encode("utf-8"))
+            if text_digest != span.sha256:
+                raise ManifestError(
+                    f"{context} source_span digest does not match the obligation "
+                    f"text it claims to quote; expected {span.sha256}, got "
+                    f"{text_digest}. The contract source is not in hand, so the "
+                    "span's offset and length were not checked against it."
+                )
+            continue
         end = span.offset + span.length
         if end > len(source_bytes):
             raise ManifestError(
@@ -395,8 +457,21 @@ def _parse_obligation(raw: object, index: int) -> Obligation:
     )
 
 
-def load_manifest(path: Path) -> Manifest:
-    """Load, validate, source-bind, normalize, and hash a manifest."""
+def load_manifest(path: Path, *, allow_absent_source: bool = False) -> Manifest:
+    """Load, validate, source-bind, normalize, and hash a manifest.
+
+    `allow_absent_source` is the explicit opt-in described in #78. With it, a
+    manifest whose contract source is not on disk loads with a
+    `declared_only` binding instead of refusing, so a counterparty who holds
+    the manifest, the evidence and a receipt -- but is not entitled to the
+    contract document itself -- can still replay. It is never a silent
+    fallback: the default is unchanged, absence under it raises exactly the
+    `ManifestError` it always did, and no code path infers the opt-in from the
+    file happening to be missing. It also does not extend to a manifest whose
+    obligations declare a `source_span`: a span is an assertion about bytes in
+    the approved document, and it is refused rather than skipped when those
+    bytes are not in hand.
+    """
     resolved_path = path.resolve(strict=True)
     try:
         manifest_bytes = read_regular_file(
@@ -424,10 +499,11 @@ def load_manifest(path: Path) -> Manifest:
         isinstance(item, Mapping) and item.get("source_span") is not None
         for item in obligations_raw
     )
-    contract, source_bytes = _parse_contract(
+    contract, source_bytes, source_binding = _parse_contract(
         raw.get("contract"),
         resolved_path.parent,
         read_source=spans_declared,
+        allow_absent_source=allow_absent_source,
     )
     if not isinstance(obligations_raw, list) or not obligations_raw:
         raise ManifestError("manifest.obligations must be a non-empty array of tables")
@@ -451,4 +527,5 @@ def load_manifest(path: Path) -> Manifest:
         obligations=obligations,
         manifest_path=str(resolved_path),
         manifest_sha256=sha256_bytes(canonical_json_bytes(normalized)),
+        source_binding=source_binding,
     )

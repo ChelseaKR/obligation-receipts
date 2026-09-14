@@ -27,6 +27,25 @@ class EvidenceKind(StrEnum):
     EXTERNAL_ATTESTATION = "external_attestation"
 
 
+class SourceBinding(StrEnum):
+    """How strongly a loaded manifest is bound to the approved source document.
+
+    There is no third "unknown" member on purpose. A manifest is either bound to
+    bytes that hashed to the declared digest, or bound only to the declaration;
+    every other outcome -- bytes present that hash to something else, a path
+    that escapes its root, a source that is not a regular file, an absent
+    source without the explicit opt-in -- is a refusal, not a weaker state.
+    """
+
+    #: The source bytes were read and hashed to `contract.source_sha256`.
+    VERIFIED = "verified"
+    #: The source bytes were absent and the declared digest was carried
+    #: forward unchecked, under an explicit caller opt-in. This establishes
+    #: that the manifest NAMES a source digest, never that the digest is of
+    #: the approved document.
+    DECLARED_ONLY = "declared_only"
+
+
 class ResultStatus(StrEnum):
     PASS = "pass"  # noqa: S105 - evaluation state, not a credential
     FAIL = "fail"
@@ -202,6 +221,10 @@ class Manifest:
     obligations: tuple[Obligation, ...]
     manifest_path: str
     manifest_sha256: str
+    #: Which source binding this load achieved. Defaulted so a manifest built
+    #: in a test or by an embedder keeps the strict meaning; only
+    #: `load_manifest(..., allow_absent_source=True)` can produce the weaker one.
+    source_binding: SourceBinding = SourceBinding.VERIFIED
 
     @property
     def source_spans_declared(self) -> int:
@@ -214,6 +237,19 @@ class Manifest:
         return sum(1 for item in self.obligations if item.source_span is not None)
 
     def normalized_dict(self) -> dict[str, JsonValue]:
+        """The manifest's canonical content -- deliberately binding-independent.
+
+        `source_binding` is NOT a member here, and must not become one.
+        `manifest_sha256` is taken over this dict, and every downstream artifact
+        -- the evidence plan, the receipt payload, the ledger entry -- carries
+        that digest. If the binding entered it, a counterparty replaying without
+        the source document would regenerate a different digest from the one the
+        artifact records, and the replay would fail for a reason that has
+        nothing to do with the evidence. That is the exact failure the
+        source-absent mode exists to remove, so the mode has to leave the
+        digest alone: the manifest's content is identical either way, and only
+        the strength of the check performed over it differs.
+        """
         return {
             "contract": self.contract.to_dict(),
             "obligations": [item.to_dict() for item in self.obligations],

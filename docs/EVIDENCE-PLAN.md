@@ -159,3 +159,39 @@ byte-equivalent regeneration under the plan's own privacy profile. This detects
 a stale plan or one derived from another manifest. It still cannot authenticate
 who approved the manifest, establish that every contractual clause was mapped,
 or decide whether the requested evidence is sufficient.
+
+### The source binding, and what `declared_only` does not establish
+
+By default the manifest reload opens the contract document itself and re-hashes
+it, so manifest-backed verification requires possession of the approved source.
+`--allow-absent-source` relaxes exactly that one step: the manifest is loaded
+against `contract.source_sha256` alone and reported as bound `declared_only`
+rather than `verified`, in a `contract_source_binding` field on the command's
+stdout line.
+
+**A `declared_only` run establishes that the manifest names a source digest. It
+never establishes that the digest is of the approved document.** Everything the
+plan or receipt says about the evidence is checked exactly as it always was;
+what is not checked is the one link between the manifest and the contract. A
+source that is present and hashes to anything other than the declared digest is
+refused under both modes, as is a source path that escapes its root or is not a
+regular file. Only absence is downgradable, and only when the caller asks.
+
+The binding is **not** part of the plan payload, and `manifest_sha256` is
+identical under both bindings. That is deliberate and load-bearing: if the
+binding entered the hashed payload, a counterparty regenerating without the
+source would compute a different digest from the one the producer recorded, and
+the replay this mode exists to enable would fail for a reason that has nothing
+to do with the evidence. The binding is therefore reported beside the digest
+rather than inside it, and a reader who needs to know how a particular plan was
+checked has to look at the run that checked it, not at the artifact.
+
+A `source_span` is downgraded the same way and no further. Its offset and length
+are resolved against the contract source only when the source is in hand; under
+`declared_only` they are not checked at all. `span.sha256` and the obligation
+text are still required to agree, since neither is the document — a manifest
+whose quotation was edited after its span was recorded is refused in both modes.
+`verify` reports `source_spans_verified` as `null` rather than as a count
+whenever the binding is `declared_only`, for the same reason it reports `null`
+when no manifest was supplied: a span nothing resolved against the approved
+document has not been verified, and a number would say it had.
