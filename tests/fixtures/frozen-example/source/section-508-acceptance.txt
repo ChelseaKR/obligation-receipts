@@ -10,6 +10,3 @@ A-3. The supplier must provide a current external accessibility conformance
 report for the delivered release.
 
 A-4. The service should be intuitive.
-
-A-5. The acceptance run must report zero critical violations and no more
-than two serious violations.

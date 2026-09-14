@@ -64,6 +64,9 @@ class OverallStatus(StrEnum):
 #: receipt already carry, so none of those documents needed a new field: the
 #: whole extension lives in what `expected` is allowed to be, per operator, and
 #: `_EXPECTED_SHAPES` in `manifest.py` is where that is enforced.
+#: `all_of` and `any_of` completed #64 and are the one part of it that could
+#: not keep that shape: they carry other assertions rather than a value, in a
+#: `branches` member described by `COMPOSITION_OPERATORS` below.
 ASSERTION_OPERATORS = frozenset(
     {
         "eq",
@@ -78,8 +81,48 @@ ASSERTION_OPERATORS = frozenset(
         "between",
         "length",
         "type",
+        "all_of",
+        "any_of",
     }
 )
+
+#: The two operators whose operand is other assertions rather than a value.
+#:
+#: They are the only members of the vocabulary that declare `branches` and the
+#: only ones that declare no `expected`. Held here beside the vocabulary, and
+#: imported by `manifest.py`, `plan.py` and `evaluator.py`, for the reason the
+#: vocabulary itself is: a module that decided on its own which operators
+#: compose would be a second copy of this set, and the two could disagree about
+#: whether a `branches` member is required, accepted, or forbidden.
+COMPOSITION_OPERATORS = frozenset({"all_of", "any_of"})
+
+#: The operators that take no `expected` value, so a manifest declaring one is
+#: an authoring defect and a plan carrying one is inconsistent.
+#:
+#: `exists` asks only whether a pointer resolves; a composition's operand is its
+#: `branches`. The plan's `expected_declared` flag is computed from this set, so
+#: a plan built from a manifest that uses neither is byte-identical to the plans
+#: built before composition existed.
+OPERATORS_WITHOUT_EXPECTED = frozenset({"exists"}) | COMPOSITION_OPERATORS
+
+#: How many assertion levels a manifest may declare, counting the one an
+#: evidence item carries directly as level 1.
+#:
+#: A composition at level 3 would need branches at level 4 and is refused when
+#: the manifest loads, so `all_of` may contain `any_of` and no deeper. The cap
+#: is small on purpose: the vocabulary is closed and non-executable, and a
+#: bounded depth is what keeps "closed" a property of the format rather than a
+#: property of whoever wrote the manifest.
+MAX_ASSERTION_DEPTH = 3
+
+#: A composition needs at least this many branches.
+#:
+#: A one-branch `all_of` is the branch itself wearing a wrapper, and it is the
+#: one input that could be written two ways with two different answers -- the
+#: flat form reports an unresolvable pointer as `fail`, and a branch reports it
+#: as `missing` (see `evaluator._assertion_status`). Refusing it at load time
+#: means no assertion has two spellings that disagree.
+MIN_COMPOSITION_BRANCHES = 2
 
 #: The JSON type names `type` may assert, which are the seven RFC 8259 types
 #: with `integer` deliberately absent. JSON has one number type; a manifest
@@ -139,6 +182,39 @@ class SourceSpan:
 
 
 @dataclass(frozen=True, slots=True)
+class Assertion:
+    """One node of a `json_assertion`: a pointer, an operator, and its operand.
+
+    `EvidenceSpec` carries the top-level node's three fields inline rather than
+    holding an `Assertion`, because every manifest written before composition
+    existed must normalize to exactly the bytes it normalized to then, and a
+    nested `assertion` member would have changed all of them. This type is
+    therefore the shape of a *branch*, and a branch may itself compose, which is
+    what makes it recursive and why `MAX_ASSERTION_DEPTH` exists.
+
+    `pointer` is resolved **within the value its parent resolved**, so a branch
+    of a composition at `/summary` addressing `/critical_violations` reads
+    `/summary/critical_violations` in the artifact. A composition whose own
+    pointer is the empty string -- the whole document, RFC 6901 section 5 --
+    therefore gives its branches document-absolute pointers, so both readings
+    are available under one rule.
+    """
+
+    pointer: str
+    operator: str
+    expected: JsonValue | None = None
+    branches: tuple[Assertion, ...] | None = None
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        value: dict[str, JsonValue] = {"operator": self.operator, "pointer": self.pointer}
+        if self.expected is not None:
+            value["expected"] = self.expected
+        if self.branches is not None:
+            value["branches"] = [item.to_dict() for item in self.branches]
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class EvidenceSpec:
     evidence_id: str
     kind: EvidenceKind
@@ -146,6 +222,11 @@ class EvidenceSpec:
     pointer: str | None = None
     operator: str | None = None
     expected: JsonValue | None = None
+    #: The branches of a composing operator, and `None` for every other one.
+    #: Emitted into the normalized manifest only when present, exactly as
+    #: `Obligation.source_span` is, so a manifest that declares no composition
+    #: hashes to what it hashed to before `all_of` existed.
+    branches: tuple[Assertion, ...] | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
         value: dict[str, JsonValue] = {
@@ -159,6 +240,8 @@ class EvidenceSpec:
             value["operator"] = self.operator
         if self.expected is not None:
             value["expected"] = self.expected
+        if self.branches is not None:
+            value["branches"] = [item.to_dict() for item in self.branches]
         return value
 
 

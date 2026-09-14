@@ -49,7 +49,8 @@ Each evaluable obligation carries its declared ID, classification, criticality,
 obligations use `not_applicable`, avoiding the false implication that an empty
 requirement set was satisfied. Automated
 requirements repeat the exact declared JSON pointer, operator, and expected
-value. Attestation requirements give the allowed statuses, exact required
+value — and, for a composing operator, the exact declared branches in order.
+Attestation requirements give the allowed statuses, exact required
 fields, and fixed contract/version/manifest/obligation/evidence-item binding
 values.
 Unverifiable obligations have no evidence requirements.
@@ -70,6 +71,7 @@ regex, no arithmetic, and no comparison between two pointers or two files.
 | `between` | `[low, high]`, numbers, `low <= high` | the resolved number is within, **inclusive at both ends** |
 | `length` | `{operator = <comparison>, value = <non-negative integer>}` | the array, string, or object has that many elements, characters, or members |
 | `type` | one of `null`, `boolean`, `number`, `string`, `array`, `object` | the resolved value is of that JSON type |
+| `all_of`, `any_of` | *not allowed* — the operand is `branches` | every / at least one branch passes (see [Composition](#composition)) |
 
 `length`'s comparison is one of `eq`, `ne`, `gt`, `gte`, `lt`, `lte`. It is a
 fixed two-key table, not an expression: two required keys, no nesting, no third
@@ -80,7 +82,9 @@ key. `"the results array is non-empty"` is
 command that loads one. An `expected` the operator cannot use — an empty array
 for `in`, inverted bounds for `between`, `integer` for `type` — is a
 `ManifestError` about the approved manifest, never an observed `fail` in a
-receipt. That is the same line a malformed pointer is held to, and for the same
+receipt. So is a composition with one branch, with an `expected`, or nested past
+the depth cap, and so is a `branches` member on an operator that does not
+compose. That is the same line a malformed pointer is held to, and for the same
 reason: a supplier must never be told their evidence failed a comparison that
 was never made.
 
@@ -96,10 +100,88 @@ Three behaviours are worth stating because the alternative reading is tempting:
   manifest that could say `integer` would make `1.0` a `fail` against `1` for a
   difference no JSON parser preserves.
 
-Composition — `all_of` and `any_of` over several assertions — is **not** in the
-vocabulary. It needs a nested assertion shape that the plan, the single-evidence
-check and the receipt do not carry, and it is tracked at
-[#64](https://github.com/ChelseaKR/obligation-receipts/issues/64).
+## Composition
+
+One clause often carries two thresholds. `all_of` and `any_of` express that
+without splitting it into two obligations, which would say the contract has two.
+
+```toml
+[[obligations.evidence]]
+id = "a5-axe-severity-thresholds"
+kind = "json_assertion"
+path = "automated/axe-summary.json"
+pointer = "/summary"
+operator = "all_of"
+branches = [
+  { pointer = "/critical_violations", operator = "eq", expected = 0 },
+  { pointer = "/serious_violations", operator = "lte", expected = 2 },
+]
+```
+
+- **A branch is an assertion**, with the same four members and the same rules: a
+  well-formed pointer, an operator from the same closed set, an `expected` whose
+  shape that operator can use, and — for `all_of` and `any_of` — its own
+  `branches`.
+- **A branch's pointer is resolved inside the value its parent resolved.** Above,
+  the branches read `/summary/critical_violations` and
+  `/summary/serious_violations`. A composition whose own `pointer` is the empty
+  string addresses the whole document (RFC 6901 section 5), so its branches carry
+  document-absolute pointers. One rule, both readings.
+- **A composing operator declares no `expected`.** Its operand is `branches`.
+- **At least two branches.** A composition of one is the assertion itself, and it
+  is the only input that could be written two ways with two different answers —
+  see the `missing` rule below.
+- **Three assertion levels, no more.** The evidence item's own assertion is level
+  1, its branches are level 2, theirs are level 3. A composition at level 3 is a
+  `ManifestError`. The cap is what keeps "closed" a property of the format rather
+  than of whoever wrote the manifest.
+
+### `missing` is not `false`
+
+A branch has three outcomes, and they combine as Kleene three-valued logic with
+`missing` as the unknown:
+
+| | at least one `fail` | else at least one `missing` | else |
+| --- | --- | --- | --- |
+| `all_of` | `fail` | `missing` | `pass` |
+
+| | at least one `pass` | else at least one `missing` | else |
+| --- | --- | --- | --- |
+| `any_of` | `pass` | `missing` | `fail` |
+
+`all_of`'s rule is the one the evidence plan already declares over an
+obligation's several evidence items (`all_required`), restricted to the three
+statuses an automated assertion can hold; `any_of`'s is its dual.
+
+A branch whose pointer does not resolve is `missing` — **not `false`** — for
+every operator except `exists`, which is the one operator whose question
+"does this pointer resolve" has `false` as a real answer. Folding an unmeasured
+branch into `false` is how `any_of` over two absent members would report an
+observed failure against a supplier for a comparison nobody made.
+
+**This differs, deliberately, from a flat assertion**, where a pointer that does
+not resolve has been an observed `fail` since the beginning: the document does
+not say the thing, and that is the whole answer. Inside a composition the answer
+is folded with others, so "not measured" has to survive the fold. The two rules
+can never disagree about one input, because the only assertion expressible in
+both forms — a composition of one branch — does not load.
+
+A composition whose own `pointer` does not resolve reports every branch as
+unmeasured, and the receipt's detail says so with a denominator:
+`assertion /summary any_of was not evaluable: 2 of 2 branches could not be
+measured`.
+
+### What the plan carries
+
+A composing requirement's `assertion` object gains one member, `branches`, an
+ordered array of assertion objects of the same shape. The member is **absent**
+for every other operator, so a plan built from a manifest that composes nothing
+is byte-identical to the plans built before composition existed, and a reader
+built before it refuses a composing plan rather than silently treating `all_of`
+as an assertion with no operand.
+
+Branch order is preserved exactly and is part of the payload digest. It does not
+affect any verdict.
 
 ## Privacy profiles
 
