@@ -51,7 +51,7 @@ class OverallStatus(StrEnum):
 #: and to the example manifest produced `overall_status: rejected` and an
 #: evidence result of `fail`, detail "assertion /summary/critical_violations
 #: matches did not pass" -- because `_compare` returned `False` for an operator
-#: it did not recognise. The supplier is told their evidence failed, in a
+#: it did not recognize. The supplier is told their evidence failed, in a
 #: receipt, when nothing was evaluated at all.
 #:
 #: `evaluator.IMPLEMENTED_OPERATORS` is derived from the dispatch that actually

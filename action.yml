@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Reusable composite action: evaluate acceptance obligations, or verify a
-# receipt, in CI -- honouring this project's documented exit-code contract.
+# receipt, in CI -- honoring this project's documented exit-code contract.
 #
 # The contract is the point. `src/obligation_receipts/exit_codes.py` reserves
 # code 2 for "no result document was produced", so an evaluated negative
@@ -12,7 +12,7 @@
 #
 # Downstream usage lives in docs/CI-ACTION.md.
 name: "Obligation Receipts"
-description: "Evaluate acceptance obligations or verify a receipt, honouring the exit-code contract."
+description: "Evaluate acceptance obligations or verify a receipt, honoring the exit-code contract."
 branding:
   icon: "check-square"
   color: "blue"

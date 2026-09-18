@@ -181,7 +181,7 @@ was granted because code scanning was unavailable on a private repository, and
 the repository is now public with code-scanning default setup reporting
 `not-configured` rather than unavailable. Only WVR-009 remains.
 
-**One judgement left to the owner.** Branch coverage measured 99.89% in this
+**One judgment left to the owner.** Branch coverage measured 99.89% in this
 pass against a merge-blocking floor of 90%, and measures 100% today. The floor
 still fails on a real regression, so it is not a broken gate, but it is loose
 enough that a large one could slip. It is documented as 90% in `AGENTS.md`, the

@@ -10,7 +10,7 @@ Three constraints keep this a report rather than a verdict.
 
 **It never re-evaluates.** Every status here is copied from a receipt that
 already recorded it. Nothing on this path reads an evidence root, so a diff
-cannot disagree with the receipts it summarises.
+cannot disagree with the receipts it summarizes.
 
 **It uses only the domain's own labels.** `pass`, `fail`, `missing`,
 `review_required`, `unverifiable` and the four overall states -- no "improved",

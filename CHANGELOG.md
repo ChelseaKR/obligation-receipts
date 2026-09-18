@@ -153,7 +153,7 @@ All notable changes will be documented here.
   receipt, which is the same line `pointer.is_well_formed` draws and the same failure
   `models.ASSERTION_OPERATORS` was consolidated to prevent.
 
-  Three behaviours are asserted rather than assumed, because the wrong reading is the
+  Three behaviors are asserted rather than assumed, because the wrong reading is the
   tempting one. **A value with no length is not length zero**: `length lte 0` against the
   number `7` is a `fail`, since collapsing "has no length" into "length is 0" would
   publish a measurement nobody took. **A boolean is never a number**: `in` will not match

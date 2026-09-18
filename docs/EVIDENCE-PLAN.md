@@ -84,7 +84,7 @@ receipt. That is the same line a malformed pointer is held to, and for the same
 reason: a supplier must never be told their evidence failed a comparison that
 was never made.
 
-Three behaviours are worth stating because the alternative reading is tempting:
+Three behaviors are worth stating because the alternative reading is tempting:
 
 - **A value with no length is not length zero.** `length lte 0` against the
   number `7` is a `fail`, not a pass. Collapsing "this has no length" into "its

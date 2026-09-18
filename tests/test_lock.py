@@ -182,7 +182,7 @@ def test_a_lock_from_a_different_manifest_is_refused(
 def test_a_lock_from_a_different_approved_source_is_refused(copied_example: Path) -> None:
     """The manifest digest and the source digest are two different bindings.
 
-    A manifest can be re-normalised to the same bytes over a different approved
+    A manifest can be re-normalized to the same bytes over a different approved
     source, so checking only `manifest_sha256` would accept a lock taken against
     other evidence of authority.
     """
