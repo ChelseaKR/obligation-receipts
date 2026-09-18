@@ -158,7 +158,7 @@ def _measure(root: Path, relative: str, item: os.DirEntry[str]) -> _Entry:
     # so a second comparison against the same constant would be a duplicate
     # definition of "too large" that could drift from the seam that enforces
     # it -- and a negative control proved it was doing no work: deleting it
-    # changed no observable behaviour, because the seam below already produced
+    # changed no observable behavior, because the seam below already produced
     # the identical reason string.
     try:
         _, digest = hash_bounded_file(root, relative, max_bytes=MAX_ARTIFACT_BYTES)

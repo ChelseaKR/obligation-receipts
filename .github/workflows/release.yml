@@ -50,7 +50,7 @@ jobs:
           test "${RELEASE_TAG}" = "v${PACKAGE_VERSION}"
       # `--locked`, not `--frozen`. `--frozen` installs exactly what uv.lock
       # records and never reads pyproject.toml, so it cannot see the two
-      # disagree. A release is the one change guaranteed to desynchronise
+      # disagree. A release is the one change guaranteed to desynchronize
       # them -- the version bump lands in pyproject.toml and the lock has to
       # be re-resolved to match -- so this is the path on which `--frozen`
       # was least able to notice and most likely to be wrong: it would have
