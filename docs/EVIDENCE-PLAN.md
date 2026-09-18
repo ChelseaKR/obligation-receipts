@@ -159,12 +159,16 @@ every operator except `exists`, which is the one operator whose question
 branch into `false` is how `any_of` over two absent members would report an
 observed failure against a supplier for a comparison nobody made.
 
-**This differs, deliberately, from a flat assertion**, where a pointer that does
-not resolve has been an observed `fail` since the beginning: the document does
-not say the thing, and that is the whole answer. Inside a composition the answer
-is folded with others, so "not measured" has to survive the fold. The two rules
-can never disagree about one input, because the only assertion expressible in
-both forms — a composition of one branch — does not load.
+**A flat assertion follows the same rule.** A pointer that does not resolve
+is `missing`, with exit 3, for every operator except `exists`, and the detail
+says `assertion /summary/absent eq was not evaluable: the pointer does not
+resolve`. Until the owner decision of 2026-09-18 a flat assertion reported it
+as an observed `fail`, with exit 1, on the reading that "the document does not
+say the thing" is the whole answer. That reading tells a supplier their
+evidence failed a comparison nobody made, which is the error the composition
+rule exists to prevent, so the two forms now agree. A composition of one
+branch still does not load, because it would be a second spelling of the same
+assertion.
 
 A composition whose own `pointer` does not resolve reports every branch as
 unmeasured, and the receipt's detail says so with a denominator:

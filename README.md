@@ -192,7 +192,7 @@ an evaluated negative outcome apart from a tool or input error:
 | 0 | every `must` obligation passed |
 | 1 | evidence was read and did not pass; a result document exists |
 | 2 | manifest, lookup, path, argument, or document input error; **no result document** |
-| 3 | required evidence was absent or unusable, so nothing was observed |
+| 3 | required evidence was absent or unusable, or did not contain the value an assertion names, so nothing was observed |
 | 4 | an attestation is absent, unusable, unbound, or awaiting review |
 
 Code 2 is reserved: it always means no result document was produced, and no
@@ -204,7 +204,7 @@ which one it received.
 |---|---|---|---|---|
 | `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
 | `verify` | verified | payload digest or replay mismatch | — | — |
-| `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable, or an `all_of`/`any_of` whose branches could not be measured | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
+| `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable, an assertion whose pointer does not resolve in the artifact (every operator except `exists`), or an `all_of`/`any_of` whose branches could not be measured | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
 | `evaluate --lock` | as `evaluate`, when the evidence is exactly what the lock froze | as `evaluate` | as `evaluate` | — |
 | `ledger-verify` | the chain is intact | an entry was edited, inserted, removed, or reordered — a finding about the records | — | — |
 | `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `diff-receipts`, `freeze-evidence`, `ledger-append`, `research-metrics` | success | — | — | — |

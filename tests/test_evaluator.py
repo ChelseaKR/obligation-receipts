@@ -397,12 +397,16 @@ def test_overall_status_algebra() -> None:
     )
 
 
-def test_pointer_descending_through_a_scalar_fails_without_raising(tmp_path: Path) -> None:
-    """Regression test for #24.
+def test_pointer_descending_through_a_scalar_is_missing_without_raising(tmp_path: Path) -> None:
+    """Regression test for #24, with the answer the 2026-09-18 owner decision set.
 
     A manifest pointer that walks into a scalar (`/a/b` where `a` is a string)
     is well formed and reaches the evaluator. It must resolve to "not found"
     and become a bounded result, never an exception out of the evaluator.
+
+    The bounded result is `missing`, not `fail`. It was `fail` from #24 until
+    2026-09-18, which reported an observed failure for a comparison nobody
+    made. The artifact was read, so its digest is still carried.
     """
     _write_json(tmp_path / "artifact.json", {"a": "scalar"})
     spec = EvidenceSpec(
@@ -414,8 +418,91 @@ def test_pointer_descending_through_a_scalar_fails_without_raising(tmp_path: Pat
         expected="anything",
     )
     result = _evaluate_assertion(spec, tmp_path)
-    assert result.status is ResultStatus.FAIL
+    assert result.status is ResultStatus.MISSING
     assert result.artifact_sha256 is not None
+
+
+def _flat_spec(pointer: str, operator: str, expected: JsonValue | None = None) -> EvidenceSpec:
+    return EvidenceSpec(
+        evidence_id="flat",
+        kind=EvidenceKind.JSON_ASSERTION,
+        path="artifact.json",
+        pointer=pointer,
+        operator=operator,
+        expected=expected,
+    )
+
+
+@pytest.mark.parametrize(
+    ("operator", "expected"),
+    [
+        ("eq", 0),
+        ("ne", 0),
+        ("gt", 0),
+        ("gte", 0),
+        ("lt", 0),
+        ("lte", 0),
+        ("in", [0, 1]),
+        ("not_in", [0, 1]),
+        ("between", [0, 1]),
+        ("length", {"operator": "eq", "value": 0}),
+        ("type", "number"),
+    ],
+)
+def test_a_flat_assertion_over_an_absent_member_is_missing_not_fail(
+    tmp_path: Path, operator: str, expected: JsonValue
+) -> None:
+    """Every comparing operator, because the fix sits above the comparator.
+
+    `ne` and `not_in` are the two worth naming. Before this change an absent
+    member answered `fail` for them too, so it was not "absence reads as a
+    pass". But the two comparisons whose natural answer about "nothing" might
+    look like `true` are the ones a later reader is most likely to special-case.
+    None of them is measured when the value is not there.
+    """
+    _write_json(tmp_path / "artifact.json", {"summary": {"critical_violations": 0}})
+    result = _evaluate_assertion(_flat_spec("/summary/absent", operator, expected), tmp_path)
+    assert result.status is ResultStatus.MISSING
+    assert result.artifact_sha256 is not None
+    assert result.detail == (
+        f"assertion /summary/absent {operator} was not evaluable: the pointer does not resolve"
+    )
+
+
+def test_exists_over_an_absent_member_is_still_an_observed_fail(tmp_path: Path) -> None:
+    """`exists` is the one operator whose question the absence answers."""
+    _write_json(tmp_path / "artifact.json", {"summary": {"critical_violations": 0}})
+    result = _evaluate_assertion(_flat_spec("/summary/absent", "exists"), tmp_path)
+    assert result.status is ResultStatus.FAIL
+    assert result.detail == "assertion /summary/absent exists did not pass"
+
+
+def test_a_flat_assertion_over_a_present_value_still_fails_and_passes(tmp_path: Path) -> None:
+    """Positive control: the missing rule must not swallow a real comparison.
+
+    A guard that answered `missing` for every flat assertion would satisfy the
+    tests above on its own. A present value that does not match is still an
+    observed `fail`, and one that does is still a `pass`.
+    """
+    _write_json(tmp_path / "artifact.json", {"summary": {"critical_violations": 1}})
+    failed = _evaluate_assertion(_flat_spec("/summary/critical_violations", "eq", 0), tmp_path)
+    assert failed.status is ResultStatus.FAIL
+    assert failed.detail == "assertion /summary/critical_violations eq did not pass"
+    passed = _evaluate_assertion(_flat_spec("/summary/critical_violations", "eq", 1), tmp_path)
+    assert passed.status is ResultStatus.PASS
+    assert passed.detail == "assertion /summary/critical_violations eq passed"
+
+
+def test_a_present_json_null_is_compared_not_missing(tmp_path: Path) -> None:
+    """A member whose value is JSON `null` exists, so it is compared.
+
+    `resolve` reports it as found. Treating a present `null` as absent would
+    turn an observed `fail` (the value is `null`, not 0) into `missing`, which
+    is the same error as before pointed the other way.
+    """
+    _write_json(tmp_path / "artifact.json", {"summary": {"critical_violations": None}})
+    result = _evaluate_assertion(_flat_spec("/summary/critical_violations", "eq", 0), tmp_path)
+    assert result.status is ResultStatus.FAIL
 
 
 def test_pointer_reports_an_absent_object_member_as_not_found() -> None:
