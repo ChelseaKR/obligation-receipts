@@ -308,7 +308,7 @@ All notable changes will be documented here.
   `contract_source_binding` as `verified` or `declared_only`. Only ABSENCE is
   downgradable: a present source whose digest does not match, a path that escapes
   its root, and a source that is not a regular file are all refused under both
-  modes, with the same messages. Without the flag, behaviour is byte-identical
+  modes, with the same messages. Without the flag, behavior is byte-identical
   including the error text, and the flag is refused where no manifest is loaded at
   all. `manifest_sha256` is deliberately identical under both bindings — if the
   binding entered the hashed payload, the replay this mode exists to enable would
