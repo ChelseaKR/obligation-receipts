@@ -15,7 +15,7 @@ each code to a different CI outcome rather than collapsing them into "failed":
 | 0 | every `must` obligation passed | job passes, `::notice::` |
 | 1 | evidence was read and did not pass (`rejected`) | fails under every `fail-on` |
 | 2 | manifest, path, argument, or document input error; **no result document** | **always** fails, as `::error::` |
-| 3 | required evidence was absent or unusable (`incomplete`) | fails under `incomplete` and `any` |
+| 3 | required evidence was absent or unusable, or did not contain the value an assertion names (`incomplete`) | fails under `incomplete` and `any` |
 | 4 | an attestation is unbound or awaiting review | fails under `any` |
 
 Code 2 is deliberately outside `fail-on`. It means no result document was

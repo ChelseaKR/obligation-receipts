@@ -302,32 +302,34 @@ def test_a_nested_composition_is_evaluated_within_its_parent() -> None:
 @pytest.mark.parametrize(
     ("fragment", "flat_status"),
     [
-        ('pointer = "/summary/absent"\noperator = "eq"\nexpected = 0', ResultStatus.FAIL),
+        ('pointer = "/summary/absent"\noperator = "eq"\nexpected = 0', ResultStatus.MISSING),
         ('pointer = "/summary/absent"\noperator = "exists"', ResultStatus.FAIL),
     ],
 )
-def test_a_flat_assertion_still_reports_an_unresolvable_pointer_as_fail(
+def test_a_flat_assertion_and_a_branch_agree_about_an_unresolvable_pointer(
     copied_example: Path, fragment: str, flat_status: ResultStatus
 ) -> None:
-    """The pre-existing contract, unchanged, and the reason it can stay unchanged.
+    """One rule for an absent pointer, flat or composed.
 
-    A flat `eq` over an absent pointer is `fail` (since #24) and a *branch* with
-    the same pointer and operator is `missing`. Those two rules could contradict
-    each other over one input only if one assertion could be written both ways,
-    and `MIN_COMPOSITION_BRANCHES` is what makes that impossible: a one-branch
-    composition does not load. See `test_a_composition_of_one_branch_is_refused`.
+    A flat `eq` over an absent pointer was `fail` from #24 until the owner
+    decision of 2026-09-18, while a *branch* with the same pointer and operator
+    was `missing`. Both are now `missing`, and `exists` is `fail` in both
+    forms, because "the pointer does not resolve" is the answer to its
+    question.
 
     Stated as a test rather than as a comment because it is the single most
     likely thing for a later reader to "fix" in one direction or the other, and
     either direction is a change to what a receipt means.
     """
     assert _first_status(copied_example, fragment) is flat_status
+    operator = "exists" if "exists" in fragment else "eq"
+    expected = None if operator == "exists" else 0
     assert (
         _assertion_status(
             {"summary": _SUMMARY},
-            Assertion(pointer="/summary/absent", operator="eq", expected=0),
+            Assertion(pointer="/summary/absent", operator=operator, expected=expected),
         )
-        is ResultStatus.MISSING
+        is flat_status
     )
 
 
@@ -335,7 +337,12 @@ def test_a_flat_assertion_still_reports_an_unresolvable_pointer_as_fail(
 
 
 def test_a_composition_of_one_branch_is_refused(copied_example: Path) -> None:
-    """The rule that keeps the two unresolvable-pointer rules from ever meeting."""
+    """A one-branch composition is the branch itself wearing a wrapper.
+
+    It used to be the one input that could be written two ways with two
+    answers. The flat form and a branch now agree about an unresolvable
+    pointer, and the refusal stays so that no assertion has two spellings.
+    """
     assert MIN_COMPOSITION_BRANCHES == 2
     manifest_path = _with_assertion(
         copied_example,

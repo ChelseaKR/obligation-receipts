@@ -117,11 +117,12 @@ MAX_ASSERTION_DEPTH = 3
 
 #: A composition needs at least this many branches.
 #:
-#: A one-branch `all_of` is the branch itself wearing a wrapper, and it is the
-#: one input that could be written two ways with two different answers -- the
-#: flat form reports an unresolvable pointer as `fail`, and a branch reports it
-#: as `missing` (see `evaluator._assertion_status`). Refusing it at load time
-#: means no assertion has two spellings that disagree.
+#: A one-branch `all_of` is the branch itself wearing a wrapper. It used to be
+#: the one input that could be written two ways with two different answers:
+#: the flat form reported an unresolvable pointer as `fail`, and a branch
+#: reported it as `missing`. Since the owner decision of 2026-09-18 both say
+#: `missing` (see `evaluator._assertion_status`). Refusing a one-branch
+#: composition at load time still means no assertion has two spellings.
 MIN_COMPOSITION_BRANCHES = 2
 
 #: The JSON type names `type` may assert, which are the seven RFC 8259 types

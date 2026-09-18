@@ -6,6 +6,45 @@ All notable changes will be documented here.
 
 ### Changed
 
+- **Breaking: a flat assertion whose pointer does not resolve is now `missing`
+  (exit 3), not `fail` (exit 1).** The artifact is present and readable, but the
+  value the assertion names is not in it, so no comparison was made. Reporting
+  that as an observed `fail` told a supplier their evidence failed a comparison
+  nobody made. This applies to every operator except `exists`, for which "the
+  pointer does not resolve" is the answer to its question, so it stays `fail`.
+  The detail line says `assertion <pointer> <operator> was not evaluable: the
+  pointer does not resolve`. A branch of an `all_of` or `any_of` already
+  answered `missing` for the same input (#64), so the flat form and the
+  composed form now agree. Owner decision of 2026-09-18, made before any
+  receipt was published.
+
+  **Why this is breaking.** The signed `v0.1.0` tag is the only released
+  version. It is not on PyPI and has no GitHub Release. It reports this case
+  as `fail`, and its README documents exit 3 for `check-evidence` only as "a
+  `json_assertion` artifact that is absent or unusable", which leaves an
+  unresolved pointer under exit 1. Under this change, for the same manifest and
+  evidence:
+
+  - `check-evidence` reports `missing` and exits 3, where it reported `fail`
+    and exited 1;
+  - `evaluate` reports a `must` obligation in this state as unresolved, so the
+    deliverable is `incomplete` (exit 3) rather than `rejected` (exit 1),
+    unless another evidence item observed a real `fail`. A `should` obligation
+    in this state is still a finding (`accepted_with_findings`, exit 0), now
+    recorded as `missing` rather than `fail`;
+  - the receipt payload's status and detail for that evidence item change, so
+    its digest changes. A receipt issued by `v0.1.0` for such a manifest will
+    not replay byte-identically under this version.
+
+  A pipeline that treated exit 1 as "the supplier's evidence is missing a
+  field" needs to read exit 3 for that case. Manifests whose pointers all
+  resolve are unaffected: the example's receipt digests and every pinned
+  determinism golden are unchanged.
+
+  Verified with a negative control: restoring the `fail` answer turns the new
+  tests red at the unit level, in the composition agreement test, and end to
+  end on both `check-evidence` and `evaluate`.
+
 - **The dogfood job references this repository's composite action as `$/`, not
   `./`, and zizmor's `impostor-commit` audit is enabled again.** The two are
   the same fact arriving twice. `./` resolves an action through the runner's
@@ -205,9 +244,8 @@ All notable changes will be documented here.
   within-artifact form of the `all_required` rule the plan already declares -- and
   `any_of` is its dual. So `any_of` over two absent members is `missing` and exit 3, not
   `fail` and exit 1: a supplier is never told their evidence failed a comparison nobody
-  made. A **flat** assertion over an absent pointer is still `fail`, unchanged since #24;
-  the two rules cannot disagree about one input because a composition of one branch --
-  the only assertion expressible both ways -- does not load.
+  made. When this landed a **flat** assertion over an absent pointer was still `fail`,
+  as it had been since #24; the entry under *Changed* above aligns it to `missing`.
 
   Closed and non-executable throughout. Three assertion levels and no more, at least two
   branches, no `expected` beside `branches`, no `branches` on an operator that does not

@@ -334,6 +334,49 @@ def test_check_evidence_cli_exit_codes_preserve_states(
     )
 
 
+def test_a_flat_assertion_over_an_absent_pointer_exits_3_not_1(
+    copied_example: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End to end, on both commands a pipeline reads an exit code from.
+
+    The artifact is present and readable, and the member the flat assertion
+    names is not in it. Nothing was compared, so `check-evidence` reports
+    `missing` and exits 3, and `evaluate` reports the `must` obligation as
+    unresolved: `incomplete`, exit 3. Before the 2026-09-18 owner decision both
+    said `fail` and exited 1, which tells a supplier their evidence failed.
+    """
+    manifest = copied_example / "obligations.toml"
+    evidence_root = copied_example / "evidence"
+    (evidence_root / "automated/axe-summary.json").write_text(
+        '{"summary":{"serious_violations":0}}', encoding="utf-8"
+    )
+
+    check = [
+        "check-evidence",
+        str(manifest),
+        "a1-axe-summary",
+        "--evidence-root",
+        str(evidence_root),
+    ]
+    assert main(check) == 3
+    evidence = _last_stdout_json(capsys)["payload"]["evidence"]  # type: ignore[index]
+    assert evidence["status"] == "missing"
+    assert evidence["artifact_sha256"] is not None
+
+    evaluate = [
+        "evaluate",
+        str(manifest),
+        "--evidence-root",
+        str(evidence_root),
+        "--out",
+        str(tmp_path / "receipt.json"),
+    ]
+    assert main(evaluate) == 3
+    assert _last_stdout_json(capsys)["overall_status"] == "incomplete"
+
+
 def test_check_evidence_cli_unknown_id_is_usage_failure(
     example_manifest: Path,
     capsys: pytest.CaptureFixture[str],
