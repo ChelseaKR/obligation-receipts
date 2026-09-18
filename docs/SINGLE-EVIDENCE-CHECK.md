@@ -29,16 +29,26 @@ The payload binds:
 - fixed scope `single_declared_evidence_check_only`.
 
 It serializes no evidence path, source locator, obligation prose, assertion
-pointer/operator/expected value, evaluator detail, evidence content, sibling
-result, obligation result, or overall disposition.
+pointer/operator/expected value, assertion branches, evaluator detail, evidence
+content, sibling result, obligation result, or overall disposition.
 
 That holds for every operator in the closed vocabulary, including the set,
 range, length and type operators. They keep the same flat
 pointer/operator/expected shape as `eq` and `gt`, so this document needed no new
 field to carry them and redacts them by the same rule — an `expected` that is a
 list of permitted statuses is exactly as much of a source locator as a scalar
-one, and is withheld here for the same reason. The vocabulary is tabulated in
-[EVIDENCE-PLAN.md](./EVIDENCE-PLAN.md#the-assertion-vocabulary).
+one, and is withheld here for the same reason.
+
+It holds for the composing operators too, and for the stronger reason. `all_of`
+and `any_of` do add a member to the *manifest* and to the *evidence plan* — an
+ordered `branches` array of further assertions — and this document carries none
+of it. Its payload schema is unchanged: a check of a composing evidence item
+reports the same evidence id, kind, status and artifact digest as a check of an
+`eq`. A composition is more of an author's reasoning than a scalar comparison
+is, so publishing it here would disclose more, not less. The vocabulary is
+tabulated in
+[EVIDENCE-PLAN.md](./EVIDENCE-PLAN.md#the-assertion-vocabulary), and composition
+is described under [Composition](./EVIDENCE-PLAN.md#composition).
 
 `obligation_evaluation_complete` is always `false`. For a two-evidence
 obligation, checking one evidence reports `declared_evidence_count: 2` and
@@ -64,6 +74,16 @@ fabricate a new internally consistent unsigned document.
 Automated assertions preserve `pass`, `fail`, and `missing`. Malformed automated
 JSON is unavailable evidence and therefore remains `missing`, never an observed
 failure.
+
+An `all_of` or `any_of` is `missing` for a second reason: the artifact was read
+and at least one branch could not be measured while no branch settled the
+question — `any_of` where nothing passed and something was absent, or `all_of`
+where nothing failed and something was absent. That is exit 3, not exit 1, and
+the distinction is the point: exit 1 tells a supplier's pipeline their evidence
+failed a comparison, and here no comparison was made. A flat assertion over an
+absent pointer remains `fail`; see
+[Composition](./EVIDENCE-PLAN.md#composition) for why the two differ and why
+they cannot disagree about one input.
 
 Manual and external attestations preserve `pass`, `fail`, and
 `review_required`. Missing, malformed, incomplete, or manifest-unbound

@@ -2,6 +2,7 @@ import json
 import os
 from copy import deepcopy
 from pathlib import Path
+from shutil import copytree
 
 import pytest
 
@@ -62,12 +63,18 @@ def test_committed_example_pins_its_receipt_payload_digest(example_manifest: Pat
     so it is not a committed fixture and cannot serve as the pin. This builds
     from the committed manifest and evidence instead.
 
-    This literal moved once, deliberately, when the example's obligations were
+    This literal has moved twice, both times because the **input** changed and
+    never because the format did. First when the example's obligations were
     bound to spans of the approved source and two of its four texts turned out
-    to be paraphrases (ADR 0002). Receipts issued for manifests that declare no
-    span did **not** move:
-    `tests/test_source_spans.py::test_a_receipt_for_a_span_free_manifest_is_byte_identical_to_the_pre_spans_receipt`
-    reproduces the previous digest from the previous input.
+    to be paraphrases (ADR 0002); then when #64 gave the example a fifth clause
+    whose two thresholds need `all_of`.
+
+    Both previous values are still reproduced, from frozen copies of the inputs
+    that produced them, by `test_the_pre_composition_example_still_digests_to_what_it_digested_to`
+    below and by
+    `tests/test_source_spans.py::test_a_receipt_for_a_span_free_manifest_is_byte_identical_to_the_pre_spans_receipt`.
+    That is what keeps this a wire-format pin: an input change moves this
+    literal and leaves those alone, and a format change moves all three.
     """
     manifest = load_manifest(example_manifest)
     evaluation = evaluate_manifest(manifest, example_manifest.parent / "evidence")
@@ -75,7 +82,7 @@ def test_committed_example_pins_its_receipt_payload_digest(example_manifest: Pat
 
     receipt = build_receipt(evaluation, generated_at="2026-01-01T00:00:00+00:00")
     assert receipt["payload_sha256"] == (
-        "e77f409596702272a8a9c1e478b7bd159d227c29cd15bb6bdad1bab759c2e486"
+        "7a5f5df4be99c014fa02ef6ad93076849bd49310f9fb8a62e24460ab7738342d"
     ), _WIRE_FORMAT_CHANGED
 
 
@@ -96,8 +103,67 @@ def test_missing_evidence_receipt_pins_its_payload_digest(copied_example: Path) 
 
     receipt = build_receipt(evaluation, generated_at="2026-01-01T00:00:00+00:00")
     assert receipt["payload_sha256"] == (
-        "2b045cb65929be44394516cf2a4f963d782ddd084c418951c36a12a4a2b7739b"
+        "356428fc8f4e7a3f8cba698bf433d25b590287f45c95bc6e83441dd3f0915df7"
     ), _WIRE_FORMAT_CHANGED
+
+
+#: The example's inputs frozen at the commit before composition landed, so the
+#: two digests they produced stay reproducible after the example itself grows.
+#: Without this the only way to keep the pins above green is to move them, and a
+#: moved wire-format pin cannot tell an input change from a format change --
+#: which is the one thing it exists to do.
+_FROZEN_EXAMPLE = Path(__file__).parent / "fixtures" / "frozen-example"
+
+
+@pytest.mark.parametrize(
+    ("remove_artifact", "status", "payload_sha256"),
+    [
+        (
+            False,
+            OverallStatus.ACCEPTED_WITH_FINDINGS,
+            "e77f409596702272a8a9c1e478b7bd159d227c29cd15bb6bdad1bab759c2e486",
+        ),
+        (
+            True,
+            OverallStatus.INCOMPLETE,
+            "2b045cb65929be44394516cf2a4f963d782ddd084c418951c36a12a4a2b7739b",
+        ),
+    ],
+)
+def test_the_pre_composition_example_still_digests_to_what_it_digested_to(
+    tmp_path: Path,
+    remove_artifact: bool,
+    status: OverallStatus,
+    payload_sha256: str,
+) -> None:
+    """A receipt issued before `all_of` existed must still re-derive to its own bytes.
+
+    These are the two literals `test_committed_example_pins_its_receipt_payload_digest`
+    and `test_missing_evidence_receipt_pins_its_payload_digest` carried before
+    #64, reproduced from a byte copy of the manifest, source and evidence that
+    produced them. A holder of one of those receipts running `verify` on this
+    build must get `verified`, not a digest mismatch they would read as
+    tampering.
+
+    Both the all-pass payload and the `missing` payload are covered, because the
+    composition work added a third detail sentence to the evaluator and a
+    `branches` member to `EvidenceSpec`. Neither may reach a payload that
+    declares no composition.
+    """
+    root = tmp_path / "frozen"
+    copytree(_FROZEN_EXAMPLE, root)
+    if remove_artifact:
+        (root / "evidence" / "automated" / "axe-summary.json").unlink()
+    manifest = load_manifest(root / "obligations.toml")
+    assert manifest.manifest_sha256 == (
+        "7ba75a4912881b2a8a8aed0825640df50cefc28270b1072c9a2a244b141e2ac8"
+    ), "the frozen example's manifest is no longer the manifest those receipts were issued for"
+    evaluation = evaluate_manifest(manifest, root / "evidence")
+    assert evaluation.overall_status is status
+
+    receipt = build_receipt(evaluation, generated_at="2026-01-01T00:00:00+00:00")
+    assert receipt["payload_sha256"] == payload_sha256, _WIRE_FORMAT_CHANGED
+    assert verify_receipt(receipt) == payload_sha256
 
 
 def test_tampered_receipt_is_rejected(example_manifest: Path) -> None:
@@ -542,15 +608,24 @@ def test_recomputed_payload_rejects_an_evidenced_obligation_with_no_evidence(
 def test_recomputed_payload_rejects_an_unverifiable_obligation_carrying_evidence(
     example_manifest: Path,
 ) -> None:
-    """The unverifiable obligation is the last one in the synthetic example."""
+    """Selected by classification rather than by position.
+
+    This test read `[-1]` and its docstring said "the unverifiable obligation is
+    the last one". That was true until the example gained a fifth clause, and
+    then it failed for a reason unrelated to what it tests. A test that means
+    "the unverifiable one" should say so.
+    """
     receipt = _built(example_manifest)
-    last = _obligations(receipt)[-1]
-    assert isinstance(last, dict)
+    unverifiable = next(
+        item
+        for item in _obligations(receipt)
+        if isinstance(item, dict) and item["classification"] == Classification.UNVERIFIABLE.value
+    )
     first = _obligations(receipt)[0]
     assert isinstance(first, dict)
     evidence = first["evidence"]
     assert isinstance(evidence, list)
-    last["evidence"] = deepcopy(evidence)
+    unverifiable["evidence"] = deepcopy(evidence)
     with pytest.raises(ReceiptError, match="inconsistent unverifiable"):
         verify_receipt(_rehashed(receipt))
 

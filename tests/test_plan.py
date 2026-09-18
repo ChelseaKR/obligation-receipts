@@ -28,6 +28,23 @@ def _obligations(plan: dict[str, JsonValue]) -> list[JsonValue]:
     return obligations
 
 
+def _only_unverifiable(obligations: list[JsonValue]) -> dict[str, JsonValue]:
+    """The example's one unverifiable obligation, by classification not position.
+
+    Several tests used `obligations[-1]` and meant this. That held while the
+    unverifiable clause happened to be written last, and broke -- for a reason
+    unrelated to what each test asserts -- the moment the example gained a
+    clause after it.
+    """
+    found = [
+        item
+        for item in obligations
+        if isinstance(item, dict) and item["classification"] == "unverifiable"
+    ]
+    assert len(found) == 1, f"expected exactly one unverifiable obligation, found {len(found)}"
+    return found[0]
+
+
 def _rehash(plan: dict[str, JsonValue]) -> None:
     plan["payload_sha256"] = sha256_bytes(canonical_json_bytes(plan["payload"]))
 
@@ -59,9 +76,14 @@ def test_portable_plan_is_deterministic_redacted_and_actionable(
         "official_decision_made": False,
     }
     obligations = _obligations(first)
-    assert len(obligations) == 4
-    for obligation in obligations[:-1]:
+    assert len(obligations) == 5
+    # Selected by classification rather than by position: this loop read
+    # `[:-1]` and meant "the evaluable ones", which stopped being the same
+    # slice when the example gained a clause after its unverifiable one.
+    for obligation in obligations:
         assert isinstance(obligation, dict)
+        if obligation["classification"] == "unverifiable":
+            continue
         assert obligation["combination_rule"] == "all_required"
         assert obligation["source_locator"] is None
         requirements = obligation["evidence_requirements"]
@@ -81,8 +103,7 @@ def test_portable_plan_is_deterministic_redacted_and_actionable(
         "operator": "eq",
         "pointer": "/summary/critical_violations",
     }
-    unverifiable = obligations[-1]
-    assert isinstance(unverifiable, dict)
+    unverifiable = _only_unverifiable(obligations)
     assert unverifiable["classification"] == "unverifiable"
     assert unverifiable["combination_rule"] == "not_applicable"
     assert unverifiable["no_evidence_reason"] == "no_evaluable_evidence_declared"
@@ -106,9 +127,7 @@ def test_local_plan_includes_declared_sensitive_collection_details(
     assert isinstance(evidence, list)
     assert isinstance(evidence[0], dict)
     assert evidence[0]["path"] == "automated/axe-summary.json"
-    last = obligations[-1]
-    assert isinstance(last, dict)
-    assert last["no_evidence_reason"] == (
+    assert _only_unverifiable(obligations)["no_evidence_reason"] == (
         "No population, task, method, threshold, or accountable reviewer is defined."
     )
     assert verify_evidence_plan(plan, load_manifest(example_manifest)) == plan["payload_sha256"]
@@ -215,9 +234,7 @@ def test_local_sensitive_rehashed_metadata_requires_exact_regeneration(
         assert isinstance(item, dict)
         item["path"] = "changed/artifact.json"
     else:
-        last = obligations[-1]
-        assert isinstance(last, dict)
-        last["no_evidence_reason"] = "changed reason"
+        _only_unverifiable(obligations)["no_evidence_reason"] = "changed reason"
     _rehash(plan)
     assert verify_evidence_plan(plan) == plan["payload_sha256"]
     with pytest.raises(EvidencePlanError, match="exact manifest regeneration"):
@@ -384,9 +401,7 @@ def test_rehashed_plan_rejects_duplicate_ids_and_invalid_unverifiable_state(
         verify_evidence_plan(plan)
 
     plan = build_evidence_plan(load_manifest(example_manifest))
-    last = _obligations(plan)[-1]
-    assert isinstance(last, dict)
-    last["no_evidence_reason"] = None
+    _only_unverifiable(_obligations(plan))["no_evidence_reason"] = None
     _rehash(plan)
     with pytest.raises(EvidencePlanError, match="unverifiable state"):
         verify_evidence_plan(plan)

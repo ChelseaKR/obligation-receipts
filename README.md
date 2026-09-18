@@ -161,7 +161,7 @@ which one it received.
 |---|---|---|---|---|
 | `evaluate` | `accepted`, `accepted_with_findings` | `rejected` | `incomplete` | — |
 | `verify` | verified | payload digest or replay mismatch | — | — |
-| `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
+| `check-evidence` | `pass` | observed `fail` | `missing` — a `json_assertion` artifact that is absent or unusable, or an `all_of`/`any_of` whose branches could not be measured | `review_required` — an attestation that is absent, unusable, unbound, or awaiting review |
 | `evaluate --lock` | as `evaluate`, when the evidence is exactly what the lock froze | as `evaluate` | as `evaluate` | — |
 | `ledger-verify` | the chain is intact | an entry was edited, inserted, removed, or reordered — a finding about the records | — | — |
 | `validate`, `evidence-plan`, `verify-evidence-plan`, `plan-status`, `audit-evidence-root`, `diff-receipts`, `freeze-evidence`, `ledger-append`, `research-metrics` | success | — | — | — |
