@@ -125,7 +125,7 @@ def test_identical_receipts_yield_an_empty_change_list() -> None:
     assert counts[EVIDENCE_CHANGED] == 0
     assert counts[ADDED] == 0
     assert counts[REMOVED] == 0
-    assert counts[UNCHANGED] == 4
+    assert counts[UNCHANGED] == 5
     assert _obj(payload["overall_status_transition"])["changed"] is False
     assert payload["manifest_changed"] is False
     assert payload["source_changed"] is False
@@ -297,7 +297,7 @@ def test_an_unreadable_artifact_keeps_a_null_digest_on_both_sides() -> None:
 
 
 def test_the_diff_speaks_only_the_domains_own_labels() -> None:
-    """No judgement words: a diff states movement, never whether it is good."""
+    """No judgment words: a diff states movement, never whether it is good."""
     prior = _receipt()
     current = deepcopy(prior)
     _set_status(_by_id(_obj(current["payload"]))["a1-zero-critical-violations"], "fail")
@@ -316,7 +316,7 @@ def test_the_diff_speaks_only_the_domains_own_labels() -> None:
         "accepted_by_this_tool",
         "remediated",
     ):
-        assert forbidden not in rendered, f"diff used the judgement word {forbidden!r}"
+        assert forbidden not in rendered, f"diff used the judgment word {forbidden!r}"
 
     payload = _payload_of(document)
     assert payload["decision_scope"] == "receipt_to_receipt_comparison_only"
@@ -359,7 +359,7 @@ def test_the_same_pair_diffs_byte_identically_twice() -> None:
     assert canonical_json_bytes(first) == canonical_json_bytes(second)
 
 
-def test_the_shape_guards_are_defence_in_depth_not_dead_code() -> None:
+def test_the_shape_guards_are_defense_in_depth_not_dead_code() -> None:
     """The payload-shape guards, exercised directly.
 
     They are unreachable through `diff_receipts` itself: `verify_receipt` runs
@@ -502,7 +502,7 @@ def test_the_payload_guard_holds_if_verification_ever_stops_covering_it(
     already refuses a receipt whose payload is not the closed object. It is kept
     because it is what narrows `JsonValue` to a dict for `mypy --strict` at that
     access, and because it is the guard that would matter if verification ever
-    stopped covering that case. Neutralising verification here is the only way
+    stopped covering that case. Neutralizing verification here is the only way
     to reach it, and doing so is the point of the test.
     """
     from obligation_receipts import diff as diff_module

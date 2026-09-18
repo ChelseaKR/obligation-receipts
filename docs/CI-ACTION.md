@@ -113,6 +113,13 @@ pre-commit passes a batch of changed files.
 
 ## What neither of these does
 
-Neither publishes anything. This repository has no publication authority
-(WVR-009), the action installs from a git ref rather than a package index, and
-no step here creates a release or a tag.
+Neither publishes anything. The composite action installs from a git ref rather
+than a package index, and no step here creates a release or a tag.
+
+That is now a property of the action rather than of the repository. Publication
+authority does exist, in two jobs of `release.yml` that run only on an explicit
+dispatch against an authorized signed tag — see [docs/RELEASE.md](RELEASE.md).
+It has never been exercised: nothing is on PyPI and no GitHub release exists.
+`tests/test_ci_action.py` holds this action to publishing nothing regardless,
+because a consumer runs it on every pull request and a release path there would
+be a release path in somebody else's repository.

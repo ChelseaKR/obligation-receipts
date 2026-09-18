@@ -16,7 +16,7 @@
 # construction it cannot notice the two disagree. On the drifted pair above it
 # exits 0, and it installed obligation-receipts==0.1.1 -- the perturbed
 # pyproject version -- from a lock that still recorded 0.1.0. The one change
-# guaranteed to desynchronise the lock, a release, is the one change --frozen
+# guaranteed to desynchronize the lock, a release, is the one change --frozen
 # is structurally blind to.
 #
 # `uv lock --check` re-resolves against pyproject.toml and exits non-zero when

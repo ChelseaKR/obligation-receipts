@@ -2,6 +2,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 
 def test_runtime_has_no_network_process_or_dynamic_execution_surface() -> None:
     source_root = Path(__file__).parents[1] / "src/obligation_receipts"
@@ -125,7 +127,22 @@ def test_the_accepted_assertion_vocabulary_is_the_implemented_one() -> None:
     )
 
 
-def test_no_module_keeps_its_own_copy_of_the_operator_vocabulary() -> None:
+@pytest.mark.parametrize(
+    ("anchor", "vocabulary"),
+    [
+        ("gte", "models.ASSERTION_OPERATORS"),
+        # `all_of` and `any_of` decide which operators carry a `branches`
+        # member, and three modules ask that question -- the manifest loader
+        # to decide whether branches are required, the plan validator to
+        # decide whether they are allowed, and the evaluator to decide which
+        # combination rule applies. A module that answered it from its own
+        # literal could accept a `branches` the evaluator would never read.
+        ("all_of", "models.COMPOSITION_OPERATORS"),
+    ],
+)
+def test_no_module_keeps_its_own_copy_of_the_operator_vocabulary(
+    anchor: str, vocabulary: str
+) -> None:
     """The set literal must not come back.
 
     The test above compares two names; it cannot see a third module that
@@ -135,10 +152,11 @@ def test_no_module_keeps_its_own_copy_of_the_operator_vocabulary() -> None:
     root = Path(__file__).parents[1] / "src/obligation_receipts"
     # A *set* literal naming the operators, not a dict keyed by them: excluding
     # any brace group containing a colon is what tells the re-declared
-    # vocabulary apart from `evaluator._ORDERING`, which is the implementation
-    # the first test already holds equal to it. Without that exclusion this
-    # fires on the fix itself, which is a gate that cannot be satisfied.
-    literal = re.compile(r"=\s*(?:frozenset\()?\{[^}:]*\"gte\"[^}:]*\}")
+    # vocabulary apart from `evaluator._ORDERING` and `evaluator._COMBINATION`,
+    # which are the implementations the first test already holds equal to it.
+    # Without that exclusion this fires on the fix itself, which is a gate that
+    # cannot be satisfied.
+    literal = re.compile(rf"=\s*(?:frozenset\()?\{{[^}}:]*\"{anchor}\"[^}}:]*\}}")
     offenders = [
         path.name
         for path in sorted(root.glob("*.py"))
@@ -146,5 +164,22 @@ def test_no_module_keeps_its_own_copy_of_the_operator_vocabulary() -> None:
     ]
     assert not offenders, (
         f"{offenders} declare their own operator set; import "
-        "`models.ASSERTION_OPERATORS` instead so there is one vocabulary"
+        f"`{vocabulary}` instead so there is one vocabulary"
+    )
+
+
+def test_the_composing_operators_are_the_ones_with_a_combination_rule() -> None:
+    """A composing operator with no combination rule is a `KeyError` at evaluation.
+
+    `ASSERTION_OPERATORS == IMPLEMENTED_OPERATORS` above already catches an
+    operator added to `COMPOSITION_OPERATORS` and not to `_COMBINATION`, because
+    the implemented set is derived from that table's keys. This says it directly,
+    so the failure names the table rather than the whole vocabulary.
+    """
+    from obligation_receipts.evaluator import _COMBINATION
+    from obligation_receipts.models import COMPOSITION_OPERATORS
+
+    assert set(_COMBINATION) == set(COMPOSITION_OPERATORS), (
+        "the operators that declare `branches` and the operators that have a rule for "
+        f"combining them differ: {sorted(set(COMPOSITION_OPERATORS) ^ set(_COMBINATION))}"
     )

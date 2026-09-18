@@ -19,6 +19,11 @@ from obligation_receipts.canonical import (
 )
 from obligation_receipts.models import (
     ASSERTION_OPERATORS,
+    COMPOSITION_OPERATORS,
+    MAX_ASSERTION_DEPTH,
+    MIN_COMPOSITION_BRANCHES,
+    OPERATORS_WITHOUT_EXPECTED,
+    Assertion,
     Classification,
     Criticality,
     EvidenceKind,
@@ -69,6 +74,14 @@ _OPTIONAL_OBLIGATION_FIELDS = {"source_span"}
 _SOURCE_SPAN_FIELDS = {"length", "offset", "sha256"}
 _EVIDENCE_FIELDS = {"assertion", "attestation_binding", "id", "kind", "path"}
 _ASSERTION_FIELDS = {"expected", "expected_declared", "operator", "pointer"}
+#: `branches` is emitted only by a composing operator, exactly as `source_span`
+#: is emitted only by an obligation that declares one, so a plan built from a
+#: manifest that composes nothing is byte-identical to the plans built before
+#: composition existed. An older reader still refuses a composing plan, because
+#: `_closed_object` rejects a key it does not know -- which is the direction
+#: this has to fail in: a reader that silently ignored `branches` would treat
+#: `all_of` as an assertion with no operand.
+_OPTIONAL_ASSERTION_FIELDS = {"branches"}
 _BINDING_FIELDS = {"allowed_statuses", "fixed_values", "required_fields"}
 _FIXED_VALUE_FIELDS = {
     "contract_id",
@@ -121,6 +134,26 @@ def _attestation_fields(kind: EvidenceKind) -> list[str]:
     return [*common, "issuer", "observed_at", "source_uri"]
 
 
+def _assertion_document(node: Assertion) -> dict[str, JsonValue]:
+    """One assertion as the plan carries it, at any level.
+
+    A branch is projected by exactly the function that projects the top-level
+    assertion, so the two shapes cannot drift into needing two validators. The
+    four fields are always present -- `expected` is `null` for an operator that
+    declares none, as it has been for `exists` since v0.1 -- and `branches` is
+    added only by a composing operator.
+    """
+    value: dict[str, JsonValue] = {
+        "expected": node.expected,
+        "expected_declared": node.operator not in OPERATORS_WITHOUT_EXPECTED,
+        "operator": node.operator,
+        "pointer": node.pointer,
+    }
+    if node.branches is not None:
+        value["branches"] = [_assertion_document(branch) for branch in node.branches]
+    return value
+
+
 def _evidence_requirement(
     manifest: Manifest,
     obligation: Obligation,
@@ -132,12 +165,14 @@ def _evidence_requirement(
     assertion: JsonValue = None
     binding: JsonValue = None
     if evidence.kind is EvidenceKind.JSON_ASSERTION:
-        assertion = {
-            "expected": evidence.expected,
-            "expected_declared": evidence.operator != "exists",
-            "operator": evidence.operator,
-            "pointer": evidence.pointer,
-        }
+        assertion = _assertion_document(
+            Assertion(
+                pointer=cast(str, evidence.pointer),
+                operator=cast(str, evidence.operator),
+                expected=evidence.expected,
+                branches=evidence.branches,
+            )
+        )
     else:
         binding = cast(
             JsonValue,
@@ -287,20 +322,58 @@ def _validate_source_span(value: JsonValue, context: str) -> None:
 
 
 def _validate_assertion(value: JsonValue | None, context: str) -> None:
-    assertion = _closed_object(value, _ASSERTION_FIELDS, f"{context}.assertion")
+    _validate_assertion_node(value, f"{context}.assertion", 1)
+
+
+def _validate_assertion_node(value: JsonValue | None, context: str, depth: int) -> None:
+    """One assertion node, at any level, against the closed plan schema.
+
+    Recursive so that a branch's pointer gets the same well-formedness test the
+    top-level one does. A pointer that reached a plan unchecked would be a
+    locator this document promises to have validated: the plan is the artifact a
+    collector prepares evidence against, and `verify-evidence-plan` is run
+    without a manifest more often than with one.
+    """
+    assertion = _closed_object(
+        value,
+        _ASSERTION_FIELDS,
+        context,
+        optional=_OPTIONAL_ASSERTION_FIELDS,
+    )
     pointer = assertion.get("pointer")
     operator = assertion.get("operator")
     expected_declared = assertion.get("expected_declared")
     # The same well-formedness test the manifest loader applies, so a plan and
     # the manifest it was generated from can never disagree about a pointer.
     if not isinstance(pointer, str) or not is_well_formed(pointer):
-        raise EvidencePlanError(f"{context}.assertion.pointer is invalid")
+        raise EvidencePlanError(f"{context}.pointer is invalid")
     if not isinstance(operator, str) or operator not in ASSERTION_OPERATORS:
-        raise EvidencePlanError(f"{context}.assertion.operator is unsupported")
-    if not isinstance(expected_declared, bool) or expected_declared is (operator == "exists"):
-        raise EvidencePlanError(f"{context}.assertion expected declaration is inconsistent")
+        raise EvidencePlanError(f"{context}.operator is unsupported")
+    declares_expected = operator not in OPERATORS_WITHOUT_EXPECTED
+    if not isinstance(expected_declared, bool) or expected_declared is not declares_expected:
+        raise EvidencePlanError(f"{context} expected declaration is inconsistent")
     if not expected_declared and assertion.get("expected") is not None:
-        raise EvidencePlanError(f"{context}.assertion expected value is not allowed")
+        raise EvidencePlanError(f"{context} expected value is not allowed")
+    _validate_branches(assertion, operator, context, depth)
+
+
+def _validate_branches(
+    assertion: dict[str, JsonValue], operator: str, context: str, depth: int
+) -> None:
+    branches = assertion.get("branches")
+    if operator not in COMPOSITION_OPERATORS:
+        if "branches" in assertion:
+            raise EvidencePlanError(f"{context} branches are not allowed for operator {operator}")
+        return
+    if depth >= MAX_ASSERTION_DEPTH:
+        raise EvidencePlanError(f"{context} composes past assertion level {MAX_ASSERTION_DEPTH}")
+    if not isinstance(branches, list) or len(branches) < MIN_COMPOSITION_BRANCHES:
+        raise EvidencePlanError(
+            f"{context} must declare at least {MIN_COMPOSITION_BRANCHES} branches "
+            f"for operator {operator}"
+        )
+    for index, branch in enumerate(branches):
+        _validate_assertion_node(branch, f"{context}.branches[{index}]", depth + 1)
 
 
 def _validate_binding(

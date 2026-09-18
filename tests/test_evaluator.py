@@ -55,6 +55,7 @@ def test_example_reports_explicit_unverifiable_finding(example_manifest: Path) -
         ResultStatus.PASS,
         ResultStatus.PASS,
         ResultStatus.UNVERIFIABLE,
+        ResultStatus.PASS,
     ]
     payload = evaluation.payload()
     counts = payload["obligation_counts"]
@@ -165,7 +166,7 @@ def test_attestation_requires_every_identity_binding_independently(
     a case per field, deleting any one of these four comparisons left the whole
     suite green: the remaining bindings covered for the deleted one.
 
-    `schema_version` is the sharpest of the four. An attestation self-labelled
+    `schema_version` is the sharpest of the four. An attestation self-labeled
     `.../attestation/v0.2` announces that it is a different format; accepting
     it means evaluating unknown fields under v0.1 rules and reporting `pass`.
     """
@@ -427,7 +428,7 @@ def test_pointer_reports_an_absent_object_member_as_not_found() -> None:
 def test_compare_raises_for_an_operator_it_does_not_answer(operator: str, value: object) -> None:
     """`_compare` answers only the six comparison operators, and raises otherwise.
 
-    `exists` stays in this parametrisation: it is answered one level up, from
+    `exists` stays in this parametrization: it is answered one level up, from
     the pointer's found flag, because a member whose value is JSON `null`
     exists, and `_compare` must not acquire a second, contradicting definition
     of it (#24). What changed is what "does not answer" means.

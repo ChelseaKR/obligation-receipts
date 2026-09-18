@@ -69,8 +69,8 @@ def _requirements(payload: dict[str, JsonValue]) -> dict[str, dict[str, JsonValu
 def test_the_untouched_example_is_fully_present() -> None:
     payload = _status(EVIDENCE)
     counts = _obj(payload["counts"])
-    assert counts["declared_total"] == 3
-    assert counts["present"] == 3
+    assert counts["declared_total"] == 4
+    assert counts["present"] == 4
     assert counts["absent"] == 0
     assert counts["unreadable"] == 0
     assert counts["unbound_attestations"] == 0
@@ -84,7 +84,7 @@ def test_a_removed_attestation_is_absent_and_the_rest_present(tmp_path: Path) ->
     payload = _status(root)
     counts = _obj(payload["counts"])
     assert counts["absent"] == 1
-    assert counts["present"] == 2
+    assert counts["present"] == 3
     assert counts["unreadable"] == 0
 
     rows = _requirements(payload)
@@ -101,7 +101,7 @@ def test_a_truncated_artifact_is_unreadable_with_the_reason(tmp_path: Path) -> N
     target.write_bytes(target.read_bytes()[:20])
 
     payload = _status(root)
-    assert _obj(payload["counts"])["unreadable"] == 1
+    assert _obj(payload["counts"])["unreadable"] == 2
     assert _obj(payload["counts"])["present"] == 2
     row = _requirements(payload)["a1-axe-summary"]
     assert row["state"] == "unreadable"
@@ -235,7 +235,7 @@ def test_portable_mode_redacts_paths_but_keeps_states_and_counts() -> None:
     assert payload["detail_mode"] == "portable_redacted"
     rows = _requirements(payload)
     assert all(row["path"] is None for row in rows.values())
-    assert _obj(payload["counts"])["present"] == 3
+    assert _obj(payload["counts"])["present"] == 4
 
 
 def test_a_plan_that_does_not_regenerate_from_the_manifest_is_refused(
@@ -274,7 +274,7 @@ def test_markdown_says_nothing_was_evaluated() -> None:
     rendered = render_markdown(build_plan_status(plan, manifest, EVIDENCE))
     assert "Nothing was evaluated" in rendered
     assert "missing evidence is" in rendered
-    assert "| present | 3 |" in rendered
+    assert "| present | 4 |" in rendered
 
 
 def test_markdown_refuses_a_document_with_no_payload() -> None:
@@ -317,7 +317,7 @@ def test_cli_plan_status_emits_one_json_line_and_exits_zero(
     out = capsysbinary.readouterr().out
     assert out.count(b"\n") == 1
     document = json.loads(out)
-    assert document["payload"]["counts"]["present"] == 3
+    assert document["payload"]["counts"]["present"] == 4
 
 
 def test_cli_plan_status_markdown(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -413,7 +413,7 @@ def test_an_unreadable_artifact_from_a_plain_oserror_is_unreadable(
 
     monkeypatch.setattr("obligation_receipts.progress.read_bounded_file", refuse)
     payload = _status(root)
-    assert _obj(payload["counts"])["unreadable"] == 3
+    assert _obj(payload["counts"])["unreadable"] == 4
     assert _obj(payload["counts"])["present"] == 0
     for row in _requirements(payload).values():
         assert row["state"] == "unreadable"

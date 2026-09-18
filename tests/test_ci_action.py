@@ -3,11 +3,11 @@
 Issue 61. The action is YAML executed by GitHub, not Python this suite can call,
 so what is checkable here is its shape: that every input the documentation
 promises exists, that the exit-code contract is mapped rather than collapsed,
-and that code 2 is outside `fail-on`. The behaviour itself is exercised by the
+and that code 2 is outside `fail-on`. The behavior itself is exercised by the
 `dogfood-action` job in `.github/workflows/ci.yml`, which runs the action in
 this repository against this repository's own example on every pull request.
 
-The one behaviour that IS callable is the CLI the action and the hook invoke,
+The one behavior that IS callable is the CLI the action and the hook invoke,
 so the exit codes they depend on are asserted against the real CLI.
 """
 
@@ -255,7 +255,7 @@ def test_validate_accepts_a_batch_because_that_is_how_pre_commit_calls_it(
 def test_one_manifest_still_produces_exactly_one_line(
     capsysbinary: pytest.CaptureFixture[bytes],
 ) -> None:
-    """The batch change must not alter single-manifest behaviour."""
+    """The batch change must not alter single-manifest behavior."""
     assert main(["validate", str(EXAMPLE / "obligations.toml")]) == OK
     out = capsysbinary.readouterr().out
     assert out.count(b"\n") == 1
