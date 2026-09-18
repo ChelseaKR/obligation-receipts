@@ -16,7 +16,7 @@ And `uv sync --frozen`, which is what CI ran, could never have caught it. `--fro
 "install exactly what `uv.lock` records and never re-resolve" -- it does not read
 `pyproject.toml` at all, so by construction it cannot notice that the two disagree. On the
 drifted pair above it exits 0, having installed `obligation-receipts==0.1.1` from a lock
-still recording `0.1.0`. A release is the one change guaranteed to desynchronise the lock,
+still recording `0.1.0`. A release is the one change guaranteed to desynchronize the lock,
 and it is precisely the change `--frozen` is structurally blind to.
 
 Two rules follow:
@@ -54,7 +54,7 @@ from pathlib import Path
 _ROOT = Path(__file__).parents[1]
 _MAKEFILE = _ROOT / "Makefile"
 _WORKFLOW_DIR = _ROOT / ".github/workflows"
-#: GitHub honours both spellings, so a gate that reads only one of them is blind to any
+#: GitHub honors both spellings, so a gate that reads only one of them is blind to any
 #: workflow written with the other.
 _WORKFLOW_SUFFIXES = ("*.yml", "*.yaml")
 _PRE_COMMIT = _ROOT / ".pre-commit-config.yaml"
@@ -116,14 +116,14 @@ def _run_lines(text: str) -> list[str]:
 
 
 def _workflow_run_lines() -> list[tuple[str, str]]:
-    """Every workflow shell line in the repository, labelled with the file that runs it."""
-    labelled = [
+    """Every workflow shell line in the repository, labeled with the file that runs it."""
+    labeled = [
         (workflow.name, line)
         for workflow in _workflow_files()
         for line in _run_lines(workflow.read_text(encoding="utf-8"))
     ]
-    assert labelled, "no run lines parsed out of any workflow; the reader is broken"
-    return labelled
+    assert labeled, "no run lines parsed out of any workflow; the reader is broken"
+    return labeled
 
 
 def _hook_args(lines: list[str], index: int, indent: int) -> list[str]:
@@ -175,7 +175,7 @@ def _unlocked(lines: list[str]) -> list[str]:
 
 
 def _every_invocation() -> list[tuple[str, str]]:
-    """Every shell line any gate in this repository runs, labelled with its source."""
+    """Every shell line any gate in this repository runs, labeled with its source."""
     invocations = [*_workflow_run_lines()]
     invocations += [
         (_PRE_COMMIT.name, command)

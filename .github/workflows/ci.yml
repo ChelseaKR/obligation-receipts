@@ -19,7 +19,7 @@ concurrency:
   #
   # The discriminator below gives each pushed commit its own slot while leaving
   # pull-request runs grouped per PR, so a superseded PR commit is still
-  # cancelled. `cancel-in-progress` is deliberately unchanged.
+  # canceled. `cancel-in-progress` is deliberately unchanged.
   group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.11.29"
           python-version: "3.12"
@@ -95,7 +95,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
           version: "0.11.29"
@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
           version: "0.11.29"
@@ -131,18 +131,54 @@ jobs:
 
   secret-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # clones the full history (fetch-depth: 0) before scanning it
+    # Bounds a scan of every commit reachable from HEAD -- 57 of them today --
+    # rather than of one diff. The earlier note here said the job "clones the
+    # full history before scanning it", which read as though the clone were what
+    # made it a history scan. It was not, and the job proved it: the clone was
+    # already full while the scan read a single commit.
+    timeout-minutes: 15
     permissions:
       contents: read
-      pull-requests: read # gitleaks-action lists the PR's commits through this API
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Puts every commit on disk. NECESSARY, and on its own NOT SUFFICIENT:
+          # how much history is fetched and how much of it the scanner is asked
+          # to read are two different decisions, and only the second one is made
+          # below. This line has been here the whole time the check was reading
+          # one commit.
           fetch-depth: 0
           persist-credentials: false
-      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Secret scan (gitleaks, full history)
+        # This step was `gitleaks/gitleaks-action`, which picks its scan range
+        # from the triggering event. On a push carrying several commits it runs
+        # `gitleaks detect --log-opts=--no-merges --first-parent BASE^..HEAD`;
+        # on a push carrying exactly ONE -- which every squash merge into `main`
+        # is, and every merge into `main` here is a squash merge -- it runs
+        # `--log-opts=-1`, i.e. exactly one commit. On a pull request it reads
+        # that pull request's own commits. This workflow's `on:` block is `push`
+        # and `pull_request` and nothing else: no `schedule`, no
+        # `workflow_dispatch`, and those are the two events for which the action
+        # passes no range at all. So no run of this required check has ever read
+        # more than one commit or one diff of `main`'s 57, and a credential
+        # added in one commit and deleted in the next was invisible to it.
+        #
+        # A pinned, checksum-verified binary invoked as `gitleaks git .` with no
+        # range argument walks every commit reachable from HEAD, identically on
+        # every event, so what gets scanned no longer depends on how the run was
+        # triggered. `tests/test_secret_scan_reads_history.py` asserts the
+        # invocation rather than the checkout depth, and reads this file with
+        # comments stripped so the two names above cannot satisfy it.
+        run: |
+          set -euo pipefail
+          GL=8.30.1
+          BASE="https://github.com/gitleaks/gitleaks/releases/download/v${GL}"
+          ARCHIVE="gitleaks_${GL}_linux_x64.tar.gz"
+          curl -sSfL -o "/tmp/${ARCHIVE}" "${BASE}/${ARCHIVE}"
+          curl -sSfL -o /tmp/gitleaks_checksums.txt "${BASE}/gitleaks_${GL}_checksums.txt"
+          (cd /tmp && grep "  ${ARCHIVE}$" gitleaks_checksums.txt | sha256sum --check --strict)
+          tar -xzf "/tmp/${ARCHIVE}" -C /tmp gitleaks
+          /tmp/gitleaks git . --no-banner --redact --exit-code 1
 
   sast:
     runs-on: ubuntu-latest
@@ -151,7 +187,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
           version: "0.11.29"
@@ -174,7 +210,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
           # Code scanning is available on this public repository but is not
           # configured (`code-scanning/default-setup` reports

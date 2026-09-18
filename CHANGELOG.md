@@ -28,8 +28,65 @@ All notable changes will be documented here.
   Two comments and one test docstring that still described the private pin, its
   `UNREADABLE_PINS` skip and the disabled audit are corrected rather than left
   as a rationale for something that no longer exists.
+- **The publication ban in `tests/test_supply_chain.py` is now a confinement
+  rather than an absence.** It asserted that no workflow in this repository held
+  any publication capability, which was true and deliberate and is what WVR-009
+  waived. With a publish path it would have had to be deleted; instead it is
+  scoped. Every workflow except `release.yml` is still forbidden to publish
+  anything; inside `release.yml` only `github-release` and `pypi-publish` may,
+  the workflow-level permissions may not grant one, the two jobs may not check
+  out or rebuild, and the PyPI upload must declare `id-token: write` and the
+  `pypi` environment with no long-lived credential referenced anywhere. Each
+  clause was checked against a mutation that violates it, with the mutation
+  asserted present in the file before the run.
+- WVR-009 retired on its own stated trigger, which the maintainer met on
+  2026-09-18 by deciding that publication authority is wanted: "the control
+  becomes implementable in the same change that adds it". That leaves
+  `waivers.yml` with no entries, so it now declares itself empty
+  (`waivers: []`) against a gate that already treats zero waivers as a
+  legitimate terminal state.
+- `docs/RELEASE.md` corrected on two facts it had wrong: `v0.1.0` has been cut,
+  and it is an annotated SSH-signed tag that GitHub itself reports as
+  `"verified": true`, so the release-signing key is already registered under the
+  maintainer's account. The document said neither had happened. What genuinely
+  remains before a first publication is listed there, and every item needs a
+  person rather than a commit.
 
 ### Fixed
+
+- **The required `secret-scan` check read 1 of `main`'s 57 commits.**
+  `gitleaks/gitleaks-action` picks its scan range from the event that started
+  the run: several commits pushed gives
+  `gitleaks detect --log-opts=--no-merges --first-parent BASE^..HEAD`, a single
+  commit pushed gives `--log-opts=-1` — exactly one commit — and a pull request
+  gives that pull request's own commits. Only `schedule` and
+  `workflow_dispatch` make it pass no range at all, and `ci.yml` has neither.
+  Every merge into `main` here is a squash merge, so every push to `main` is a
+  one-commit push. A credential added in one commit and deleted in the next was
+  therefore invisible to a merge-blocking check named `secret-scan`, for the
+  whole life of the repository.
+
+  `fetch-depth: 0` did not prevent it and could not. It decides how much
+  history `actions/checkout` puts on disk; what the scanner reads is decided by
+  how it is invoked. The line was already there, above an invocation that
+  declined to read what it had fetched — which is why the note beside
+  `timeout-minutes` saying the job "clones the full history before scanning it"
+  is corrected rather than kept.
+
+  The action is replaced by the pinned, checksum-verified 8.30.1 binary invoked
+  as `gitleaks git .` with no range argument, which walks every commit
+  reachable from HEAD identically on every event. The job id and its check
+  context are unchanged; `pull-requests: read` and the `GITHUB_TOKEN` the
+  action needed to list a pull request's commits are dropped with it.
+
+  Measured on a throwaway clone of this repository with its remote removed, at
+  `fe5a0aa` (tree `fc91ff6b`, 57 commits): a random real-shaped AWS key planted
+  in one commit (blob `cc6edda5`) and removed in the next — 2 commits touching
+  it, 0 occurrences in the working tree, tip tree identical to the baseline —
+  left `gitleaks git . --log-opts=-1` exiting 0 and `gitleaks git .` exiting 1.
+  `tests/test_secret_scan_reads_history.py` asserts the invocation, reading
+  `ci.yml` with comments stripped, because the comment explaining the fix has
+  to name both the action and the flag it forbids.
 
 - **`action.yml` was outside the pin-identity gate and outside the publication
   ban.** It is the file other repositories execute, and two of the three
@@ -119,7 +176,7 @@ All notable changes will be documented here.
   receipt, which is the same line `pointer.is_well_formed` draws and the same failure
   `models.ASSERTION_OPERATORS` was consolidated to prevent.
 
-  Three behaviours are asserted rather than assumed, because the wrong reading is the
+  Three behaviors are asserted rather than assumed, because the wrong reading is the
   tempting one. **A value with no length is not length zero**: `length lte 0` against the
   number `7` is a `fail`, since collapsing "has no length" into "length is 0" would
   publish a measurement nobody took. **A boolean is never a number**: `in` will not match
@@ -225,6 +282,22 @@ All notable changes will be documented here.
 - `tests/test_discovery_sample.py`, binding the record, the instrument and
   `research._HEADER` to each other, and asserting the instrument carries no
   ratings and is refused by `load_ratings` until a rater fills it.
+- **A publication half for `release.yml`, which had none.** The workflow built,
+  attested and signed a candidate and then stopped; there was no way to get that
+  candidate to a GitHub release or to PyPI, and no version of this package has
+  ever been published. It now carries a checkout-free `github-release` job and a
+  `pypi-publish` job that uploads over Trusted Publishing, plus a
+  `verify-published` job that installs what PyPI actually serves and invokes it,
+  so an upload that succeeds but cannot be installed fails the run rather than
+  sitting green. Neither publishing job checks out or executes repository code,
+  neither rebuilds, and `pypi-publish` re-checks the distribution digests against
+  the manifest the build job attested before uploading — a second build's output
+  would not be covered by that attestation. The PyPI upload has no stored
+  credential and none may be added.
+- Two release-time preconditions that used to be discovered late: the tag and
+  `pyproject.toml` versions must agree (this already existed) and `CHANGELOG.md`
+  must carry a section for the release, checked before anything is built rather
+  than when the notes are extracted from artifacts already signed.
 
 ## [0.1.0] - 2026-09-04
 

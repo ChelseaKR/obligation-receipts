@@ -346,7 +346,7 @@ def test_every_receipt_digest_field_must_be_lowercase(
     location: str,
     key: str,
 ) -> None:
-    """`_SHA256_PATTERN` is a canonicalisation rule, not a spelling preference.
+    """`_SHA256_PATTERN` is a canonicalization rule, not a spelling preference.
 
     The receipt verifier only format-checks these fields; it never recomputes
     them, so the pattern is the only thing that fixes their spelling. Relaxing
