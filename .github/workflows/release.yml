@@ -72,7 +72,7 @@ jobs:
         with:
           ref: ${{ needs.authorize.outputs.release-commit }}
           persist-credentials: false
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.11.29"
           python-version: "3.12"
@@ -94,7 +94,7 @@ jobs:
           }
       # `--locked`, not `--frozen`. `--frozen` installs exactly what uv.lock
       # records and never reads pyproject.toml, so it cannot see the two
-      # disagree. A release is the one change guaranteed to desynchronise
+      # disagree. A release is the one change guaranteed to desynchronize
       # them -- the version bump lands in pyproject.toml and the lock has to
       # be re-resolved to match -- so this is the path on which `--frozen`
       # was least able to notice and most likely to be wrong: it would have

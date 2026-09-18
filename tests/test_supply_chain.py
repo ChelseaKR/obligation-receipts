@@ -3,7 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-# GitHub honours both spellings, so a gate that reads only one of them is blind
+# GitHub honors both spellings, so a gate that reads only one of them is blind
 # to any workflow written with the other.
 _WORKFLOW_SUFFIXES = ("*.yml", "*.yaml")
 
