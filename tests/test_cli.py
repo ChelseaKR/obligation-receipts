@@ -867,7 +867,7 @@ def test_a_counterparty_without_the_source_can_replay_under_the_opt_in(
     assert verified["status"] == "verified"
     assert verified["replayed"] is True
     assert verified["contract_source_binding"] == "declared_only"
-    # `null`, not 4. Every obligation in the example declares a span, and not
+    # `null`, not 5. Every obligation in the example declares a span, and not
     # one of them was resolved against the approved document on this run.
     assert verified["source_spans_verified"] is None
 

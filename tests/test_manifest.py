@@ -402,7 +402,7 @@ def test_absent_source_loads_declared_only_under_the_opt_in(copied_example: Path
     manifest = load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
     assert manifest.source_binding is SourceBinding.DECLARED_ONLY
     assert manifest.contract.source_sha256 == (
-        "b94a87890d23aaedc93c143a00d5fc4f96f7ed09a9f839bb4aa8d9c841562bed"
+        "49524b76c8f2724154c17a3f0745d95815f9f6351711515bb25e044d20e53db0"
     )
 
 
@@ -501,7 +501,7 @@ def test_declared_only_still_loads_a_manifest_whose_obligations_declare_spans(
     rmtree(copied_example / "source")
     manifest = load_manifest(copied_example / "obligations.toml", allow_absent_source=True)
     assert manifest.source_binding is SourceBinding.DECLARED_ONLY
-    assert manifest.source_spans_declared == 4
+    assert manifest.source_spans_declared == 5
 
 
 def test_a_span_digest_that_contradicts_its_own_text_is_refused_source_absent(
