@@ -234,7 +234,7 @@ def test_nothing_outside_the_release_path_that_this_repository_executes_can_publ
     and it is the permission blocklist, not a spelling, that stops the same binary
     from being pointed at the releases endpoint.
 
-    Until 2026-09-06 this ban was absolute: no workflow here held publication
+    Until 2026-09-18 this ban was absolute: no workflow here held publication
     authority at all, recorded as a decision in `docs/RELEASE.md` and waived as
     WVR-009 rather than left as an unexplained gap. `release.yml` now has a publish
     path, so the ban is scoped to it rather than dropped -- and inside it, scoped

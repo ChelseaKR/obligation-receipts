@@ -10,7 +10,7 @@ name: release
 #   gh workflow run release.yml --ref main -f tag=vX.Y.Z
 #
 # THIS WORKFLOW NOW HOLDS PUBLICATION AUTHORITY, WHICH IT PREVIOUSLY DID NOT.
-# Until 2026-09-06 it built, attested and signed a candidate and stopped there;
+# Until 2026-09-18 it built, attested and signed a candidate and stopped there;
 # `docs/RELEASE.md` and WVR-009 recorded that as a decision rather than a gap.
 # The publication half is confined to two jobs -- `github-release` and
 # `pypi-publish` -- which never check out or execute repository code, never
@@ -287,7 +287,7 @@ jobs:
         with:
           name: dist-attested
           path: dist
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.11.29"
           python-version: "3.12"

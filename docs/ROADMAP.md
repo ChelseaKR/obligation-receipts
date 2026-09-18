@@ -59,7 +59,7 @@ Matches `docs/PRD.md`'s "P1 — only after discovery".
 - Static accessible trace report.
 - Amendment diff and invalidation rules.
 - Signed release pipeline with actual publication authority. The pipeline itself
-  shipped on 2026-09-06, ahead of the thresholds, as hosted CI did before it:
+  shipped on 2026-09-18, ahead of the thresholds, as hosted CI did before it:
   `release.yml` now carries GitHub-release and PyPI Trusted-Publishing jobs. It
   stays listed here because it has published nothing and cannot yet — a PyPI
   Trusted Publisher has to be registered by hand, and `docs/RELEASE.md` records

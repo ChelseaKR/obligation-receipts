@@ -2,9 +2,10 @@
 
 Obligation Receipts has published nothing. No GitHub release exists, no version
 is on PyPI, and local wheels and source archives are test artifacts rather than
-publication. What changed on 2026-09-06 is that the machinery to publish now
-exists and is reviewable; whether to use it is a separate decision, recorded
-below.
+publication. What changed on 2026-09-18 is that the maintainer decided
+publication authority is wanted, and the machinery to publish landed in the
+same change. Using it for a specific version still needs the steps recorded
+below, each of which a person has to take.
 
 ## What the workflow does
 
@@ -51,7 +52,7 @@ repository is forbidden to publish anything at all, and
 boundary — including that the PyPI upload uses Trusted Publishing and that no
 long-lived registry credential is referenced anywhere.
 
-Until 2026-09-06 there was no stage 3 or 4 at all. The gap was recorded as a
+Until 2026-09-18 there was no stage 3 or 4 at all. The gap was recorded as a
 decision rather than an omission, waived as WVR-009 against the portfolio's
 `release_workflow` control. That waiver named its own retirement trigger — "the
 control becomes implementable in the same change that adds it" — and was retired
@@ -90,7 +91,7 @@ Each of these needs a person, not a commit.
   token, and this repository refuses one. The pending-publisher settings are:
   owner `ChelseaKR`, repository `obligation-receipts`, workflow `release.yml`,
   environment `pypi`. The name to reserve is `obligation-receipts`, which is
-  unregistered on PyPI as of 2026-09-06.
+  unregistered on PyPI as of 2026-09-18.
 - **An independently reviewed release decision** — a second maintainer or
   outside reviewer signing off on cutting a specific version, distinct from the
   automated `verify`/`authorize` gates. The `pypi` environment is where a
