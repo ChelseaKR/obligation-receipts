@@ -293,17 +293,15 @@ def _assertion_status(container: JsonValue | None, node: Assertion) -> ResultSta
     Bounded by `models.MAX_ASSERTION_DEPTH`, which the manifest loader enforces,
     so this recursion is three frames deep at most.
 
-    **A pointer that does not resolve is `missing` here and `fail` in the flat
-    top-level assertion**, and that difference is deliberate rather than an
-    oversight. A flat assertion is the whole answer, and the pre-existing
-    contract -- pinned by
-    `tests/test_evaluator.py::test_pointer_descending_through_a_scalar_fails_without_raising`
-    since #24 -- is that the document not saying the thing is an observed
-    failure. A branch is folded together with others, and folding "not
-    measured" into "false" is what would let `any_of` publish a verdict nobody
-    measured. `MIN_COMPOSITION_BRANCHES` keeps the two rules from ever
-    disagreeing about the same input: a one-branch composition, the only way to
-    write one assertion in both forms, does not load.
+    **A pointer that does not resolve is `missing`, here and in the flat
+    top-level assertion alike**, for every operator except `exists`. Folding
+    "not measured" into "false" is what would let `any_of` publish a verdict
+    nobody measured, and it is what let a flat assertion report an observed
+    failure against a supplier for a comparison that never happened. The flat
+    form said `fail` from #24 until the owner decision of 2026-09-18; it now
+    agrees with this function, and
+    `tests/test_evaluator.py::test_pointer_descending_through_a_scalar_is_missing_without_raising`
+    pins it.
     """
     found, actual = resolve(container, node.pointer)
     if node.branches is not None:
@@ -403,11 +401,23 @@ def _evaluate_assertion(spec: EvidenceSpec, evidence_root: Path) -> EvidenceResu
             artifact_sha256,
         )
     found, actual = resolve(document, spec.pointer)
-    passed = (
-        found
-        if spec.operator == "exists"
-        else found and _compare(actual, spec.operator, spec.expected)
-    )
+    if not found and spec.operator != "exists":
+        # The artifact was read, and the value the assertion is about is not in
+        # it. That is not an observed failure: no comparison was made, so this
+        # is `missing` (exit 3), the same answer a branch of a composition gives
+        # for the same input. Until the owner decision of 2026-09-18 a flat
+        # assertion reported `fail` (exit 1) here, which told a supplier their
+        # evidence failed a comparison nobody made. `exists` is the one operator
+        # for which "the pointer does not resolve" is the measured answer.
+        return EvidenceResult(
+            evidence_id=spec.evidence_id,
+            kind=spec.kind,
+            status=ResultStatus.MISSING,
+            artifact_sha256=artifact_sha256,
+            detail=f"assertion {spec.pointer} {spec.operator} was not evaluable: "
+            "the pointer does not resolve",
+        )
+    passed = found if spec.operator == "exists" else _compare(actual, spec.operator, spec.expected)
     return EvidenceResult(
         evidence_id=spec.evidence_id,
         kind=spec.kind,

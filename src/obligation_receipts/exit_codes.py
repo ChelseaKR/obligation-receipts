@@ -13,8 +13,9 @@ The bands are:
   exists.
 - `INPUT_ERROR` — the manifest, evidence root, arguments, or a supplied document
   could not be used. No result document is produced.
-- `NOT_OBSERVED` — required evidence was absent or unusable, so no observation
-  was made. Never an observed failure.
+- `NOT_OBSERVED` — required evidence was absent or unusable, or a readable
+  artifact did not contain the value an assertion names, so no observation was
+  made. Never an observed failure.
 - `REVIEW_REQUIRED` — an attestation is unbound, malformed, or awaiting review.
 
 `INPUT_ERROR` is reserved: it always means "no result document", and no

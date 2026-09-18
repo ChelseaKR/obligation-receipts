@@ -75,15 +75,22 @@ Automated assertions preserve `pass`, `fail`, and `missing`. Malformed automated
 JSON is unavailable evidence and therefore remains `missing`, never an observed
 failure.
 
+An assertion whose pointer does not resolve in a readable artifact is also
+`missing` and exits 3, for every operator except `exists`. The artifact was
+read, but the value the assertion is about is not in it, so no comparison was
+made. `exists` is the exception because "the pointer does not resolve" is the
+answer to its question, so it stays an observed `fail`. Until the owner decision
+of 2026-09-18 every flat operator reported an absent pointer as `fail` and exit
+1; see `CHANGELOG.md`.
+
 An `all_of` or `any_of` is `missing` for a second reason: the artifact was read
 and at least one branch could not be measured while no branch settled the
 question — `any_of` where nothing passed and something was absent, or `all_of`
 where nothing failed and something was absent. That is exit 3, not exit 1, and
 the distinction is the point: exit 1 tells a supplier's pipeline their evidence
 failed a comparison, and here no comparison was made. A flat assertion over an
-absent pointer remains `fail`; see
-[Composition](./EVIDENCE-PLAN.md#composition) for why the two differ and why
-they cannot disagree about one input.
+absent pointer gives the same answer; see
+[Composition](./EVIDENCE-PLAN.md#composition).
 
 Manual and external attestations preserve `pass`, `fail`, and
 `review_required`. Missing, malformed, incomplete, or manifest-unbound
@@ -97,7 +104,7 @@ evidence items.
 | 0 | selected evidence passed |
 | 1 | selected evidence produced an observed failure |
 | 2 | no check document: invalid manifest, unknown/ambiguous ID, unsafe root, or other input error |
-| 3 | selected automated evidence is missing/unavailable |
+| 3 | selected automated evidence is missing/unavailable, or its pointer does not resolve |
 | 4 | selected attestation requires review |
 
 These are the shared CLI codes, not a table local to this command. Every command
