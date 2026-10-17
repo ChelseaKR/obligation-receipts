@@ -6,6 +6,10 @@ All notable changes will be documented here.
 
 ### Changed
 
+- **The repository takes no money, on purpose.** A committed `.github/FUNDING.yml` with every
+  key empty overrides the account-wide Ko-fi default, which this repository had inherited
+  without any document saying so (owner decision 2026-10-17).
+
 - **Breaking: a flat assertion whose pointer does not resolve is now `missing`
   (exit 3), not `fail` (exit 1).** The artifact is present and readable, but the
   value the assertion names is not in it, so no comparison was made. Reporting
