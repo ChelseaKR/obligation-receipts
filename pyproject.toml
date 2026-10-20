@@ -7,7 +7,7 @@
 # whether `twine check` can read the distribution at all (measured: twine 6.2.0
 # raises InvalidDistribution on 2.5, twine 7.0.0 accepts it). An unpinned backend
 # is an unpinned metadata format.
-requires = ["hatchling==1.32.3"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
